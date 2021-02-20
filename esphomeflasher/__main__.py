@@ -148,12 +148,6 @@ def run_esphomeflasher(argv):
     except esptool.FatalError as err:
         raise EsphomeflasherError("Error setting flash parameters: {}".format(err))
 
-    if not args.no_erase:
-        try:
-            esptool.erase_flash(stub_chip, mock_args)
-        except esptool.FatalError as err:
-            raise EsphomeflasherError("Error while erasing flash: {}".format(err))
-
     try:
         esptool.write_flash(stub_chip, mock_args)
     except esptool.FatalError as err:
@@ -165,8 +159,8 @@ def run_esphomeflasher(argv):
     print("Done! Flashing is complete!")
     print()
 
-    if args.upload_baud_rate != 115200:
-        stub_chip._port.baudrate = 115200
+    if args.upload_baud_rate != 512000:
+        stub_chip._port.baudrate = 512000
         time.sleep(0.05)  # get rid of crap sent during baud rate change
         stub_chip._port.flushInput()
 
