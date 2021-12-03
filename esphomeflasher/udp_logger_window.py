@@ -1,8 +1,8 @@
-import wx
-import socket
 import ifaddr
+import socket
+from socket import timeout
 import threading
-import time
+import wx
 
 UDP_PORT = 10000
 
@@ -52,7 +52,7 @@ class UdpLoggerWindow(wx.Frame):
     def log_message(self, message):
         try:
             self.console_ctrl.AppendText(message)
-        except: # console_ctrl could be disposed but Thread is running
+        except:  # console_ctrl could be disposed but Thread is running
             pass
 
     def get_network_interfaces(self):
@@ -83,24 +83,30 @@ class UdpLoggerWindow(wx.Frame):
         self.stop_thread()
 
         self._running = True
-        self._logging_thread = threading.Thread(target=self.collect_logs, args=(name, ip))
+        self._logging_thread = threading.Thread(target=self.collect_logs, args=(self.thread_running, name, ip))
         self._logging_thread.start()
 
-    def collect_logs(self, network_name, ip):
+    def collect_logs(self, running, network_name, ip):
         try:
             udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp_socket.settimeout(0.5)
             udp_socket.bind((ip, UDP_PORT))
             self.log_message(f'Listening to : {network_name} ({ip}:{UDP_PORT})\n')
-            while self._running:
-                data = udp_socket.recv(1024)
-                self.log_message(data)
-                time.sleep(1)
+            while running():
+                try:
+                    data = udp_socket.recv(1024)
+                    self.log_message(data)
+                except timeout:
+                    pass
 
             udp_socket.close()
 
         except Exception as exc:
             self.log_message(f'Can not connect to : {network_name} ({ip}:{UDP_PORT}). Error = {exc}\n')
             return
+
+    def thread_running(self):
+        return self._running
 
     def stop_thread(self):
         if self._logging_thread is not None:
