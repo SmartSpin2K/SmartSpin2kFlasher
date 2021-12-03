@@ -10,6 +10,7 @@ import wx.lib.inspection
 import wx.lib.mixins.inspection
 
 from esphomeflasher.helpers import list_serial_ports
+from esphomeflasher.udp_logger_window import UdpLoggerWindow
 
 
 COLOR_RE = re.compile(r'(?:\033)(?:\[(.*?)[@-~]|\].*?(?:\007|\033\\))')
@@ -143,6 +144,9 @@ class RedirectText:
     def flush(self):
         pass
 
+    def isatty(self):
+        pass
+
 
 class FlashingThread(threading.Thread):
     def __init__(self, parent, firmware, port, show_logs=False):
@@ -196,6 +200,11 @@ class MainFrame(wx.Frame):
             worker = FlashingThread(self, 'dummy', self._port, show_logs=True)
             worker.start()
 
+        def on_logs_udp_clicked(event):
+            logger_window = UdpLoggerWindow(parent=self)
+            logger_window.Show()
+            pass
+
         def on_select_port(event):
             choice = event.GetEventObject()
             self._port = choice.GetString(choice.GetSelection())
@@ -205,58 +214,66 @@ class MainFrame(wx.Frame):
 
         panel = wx.Panel(self)
 
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-
-        fgs = wx.FlexGridSizer(7, 2, 10, 10)
-
+        # Serial Port
         self.choice = wx.Choice(panel, choices=self._get_serial_ports())
         self.choice.Bind(wx.EVT_CHOICE, on_select_port)
         bmp = Reload.GetBitmap()
-        reload_button = wx.BitmapButton(panel, id=wx.ID_ANY, bitmap=bmp,
-                                        size=(bmp.GetWidth() + 7, bmp.GetHeight() + 7))
+        reload_button = wx.BitmapButton(panel, id=wx.ID_ANY, bitmap=bmp, size=(bmp.GetWidth() + 7, bmp.GetHeight() + 7))
         reload_button.Bind(wx.EVT_BUTTON, on_reload)
         reload_button.SetToolTip("Reload serial device list")
-
-        file_picker = wx.FilePickerCtrl(panel, style=wx.FLP_USE_TEXTCTRL)
-        file_picker.Bind(wx.EVT_FILEPICKER_CHANGED, on_pick_file)
 
         serial_boxsizer = wx.BoxSizer(wx.HORIZONTAL)
         serial_boxsizer.Add(self.choice, 1, wx.EXPAND)
         serial_boxsizer.AddStretchSpacer(0)
         serial_boxsizer.Add(reload_button, 0, wx.ALIGN_NOT, 20)
 
-        button = wx.Button(panel, -1, "Flash ESP")
-        button.Bind(wx.EVT_BUTTON, on_clicked)
+        # File Picker
+        file_picker = wx.FilePickerCtrl(panel, style=wx.FLP_USE_TEXTCTRL)
+        file_picker.Bind(wx.EVT_FILEPICKER_CHANGED, on_pick_file)
 
+        # Flash Button
+        flash_button = wx.Button(panel, -1, "Flash ESP")
+        flash_button.Bind(wx.EVT_BUTTON, on_clicked)
+
+        # log-Buttons
         logs_button = wx.Button(panel, -1, "View Logs")
         logs_button.Bind(wx.EVT_BUTTON, on_logs_clicked)
 
+        logs_udp_button = wx.Button(panel, -1, "View UDP Logs")
+        logs_udp_button.Bind(wx.EVT_BUTTON, on_logs_udp_clicked)
+
+        button_boxsizer = wx.BoxSizer(wx.HORIZONTAL)
+        button_boxsizer.Add(logs_button, 1, wx.EXPAND)
+        button_boxsizer.Add(logs_udp_button, 1, wx.EXPAND)
+
+        # Console window
         self.console_ctrl = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        self.console_ctrl.SetFont(wx.Font((0, 13), wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
-                                          wx.FONTWEIGHT_NORMAL))
+        self.console_ctrl.SetFont(wx.Font((0, 13), wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.console_ctrl.SetBackgroundColour(wx.BLACK)
         self.console_ctrl.SetForegroundColour(wx.WHITE)
         self.console_ctrl.SetDefaultStyle(wx.TextAttr(wx.WHITE))
 
         port_label = wx.StaticText(panel, label="Serial port")
         file_label = wx.StaticText(panel, label="Firmware")
-
         console_label = wx.StaticText(panel, label="Console")
 
+        fgs = wx.FlexGridSizer(7, 2, 10, 10)
         fgs.AddMany([
             # Port selection row
             port_label, (serial_boxsizer, 1, wx.EXPAND),
             # Firmware selection row (growable)
             file_label, (file_picker, 1, wx.EXPAND),
             # Flash ESP button
-            (wx.StaticText(panel, label="")), (button, 1, wx.EXPAND),
+            wx.StaticText(panel, label=""), (flash_button, 1, wx.EXPAND),
             # View Logs button
-            (wx.StaticText(panel, label="")), (logs_button, 1, wx.EXPAND),
+            wx.StaticText(panel, label=""), (button_boxsizer, 1, wx.EXPAND),
             # Console View (growable)
             (console_label, 1, wx.EXPAND), (self.console_ctrl, 1, wx.EXPAND),
         ])
         fgs.AddGrowableRow(4, 1)
         fgs.AddGrowableCol(1, 1)
+
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
         hbox.Add(fgs, proportion=2, flag=wx.ALL | wx.EXPAND, border=15)
         panel.SetSizer(hbox)
 
