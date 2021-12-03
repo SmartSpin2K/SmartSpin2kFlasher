@@ -41,10 +41,12 @@ class UdpLoggerWindow(wx.Frame):
         self.console_ctrl.SetForegroundColour(wx.WHITE)
         self.console_ctrl.SetDefaultStyle(wx.TextAttr(wx.WHITE))
 
-        main_box = wx.BoxSizer(wx.VERTICAL)
-        main_box.Add(ip_box, 0, border=5)
-        main_box.Add(self.console_ctrl, 1, wx.EXPAND)
+        logger_box = wx.BoxSizer(wx.VERTICAL)
+        logger_box.Add(ip_box, 0, wx.BOTTOM, 3)
+        logger_box.Add(self.console_ctrl, 1, wx.EXPAND)
 
+        main_box = wx.BoxSizer(wx.VERTICAL)
+        main_box.Add(logger_box, 1, wx.EXPAND | wx.ALL, 15)
         panel.SetSizerAndFit(main_box)
 
     def log_message(self, message):
@@ -90,8 +92,8 @@ class UdpLoggerWindow(wx.Frame):
             udp_socket.bind((ip, UDP_PORT))
             self.log_message(f'Listening to : {network_name} ({ip}:{UDP_PORT})\n')
             while self._running:
-                # data = udp_socket.recv(1024)
-                self.log_message(".")
+                data = udp_socket.recv(1024)
+                self.log_message(data)
                 time.sleep(1)
 
             udp_socket.close()
