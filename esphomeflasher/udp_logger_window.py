@@ -22,7 +22,7 @@ class UdpLoggerWindow(wx.Frame):
         panel = wx.Panel(self)
 
         # ip address selection
-        ip_label = wx.StaticText(panel, label="Ip Adresses: ", style=wx.ALIGN_CENTRE)
+        ip_label = wx.StaticText(panel, label="Network Interface: ", style=wx.ALIGN_CENTRE)
         ip_choice = wx.Choice(panel, choices=[])
         ip_addresses = list(self.get_network_interfaces())
         for ip in ip_addresses:
