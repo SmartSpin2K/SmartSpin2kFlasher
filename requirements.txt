@@ -1,4 +1,4 @@
-esptool==3.2
+esptool>=2.8
 ifaddr==0.1.7
 requests>=2.24.0,<3
 wxpython>=4.0,<5.0
