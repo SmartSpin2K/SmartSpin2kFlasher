@@ -1,4 +1,4 @@
-# SmartSpin2kFlasher
+# SmartSpin2kFlasher[![CI](https://github.com/SmartSpin2K/SmartSpin2kFlasher/actions/workflows/build.yml/badge.svg)](https://github.com/SmartSpin2K/SmartSpin2kFlasher/actions/workflows/build.yml)
 
 SmartSpin2kFlasher is a utility app for the [SmartSpin2k](https://github.com/doudar/SmartSpin2K)
 framework and is designed to make flashing ESPs with SmartSpin2K as simple as possible by:
