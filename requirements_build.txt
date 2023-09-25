@@ -1,2 +1,2 @@
-pyinstaller>=3.6,<5
+pyinstaller>=3.6,<7
 wheel
