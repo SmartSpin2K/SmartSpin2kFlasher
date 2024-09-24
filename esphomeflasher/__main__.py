@@ -12,7 +12,7 @@ from esphomeflasher import const
 from esphomeflasher.common import ESP32ChipInfo, EsphomeflasherError, chip_run_stub, \
     configure_write_flash_args, detect_chip, detect_flash_size, read_chip_info
 from esphomeflasher.const import ESP32_DEFAULT_BOOTLOADER_FORMAT, ESP32_DEFAULT_OTA_DATA, \
-    ESP32_DEFAULT_PARTITIONS
+    ESP32_DEFAULT_PARTITIONS, ESP32_FILESYSTEM,
 from esphomeflasher.helpers import list_serial_ports
 
 
