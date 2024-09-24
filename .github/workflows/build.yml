@@ -24,7 +24,7 @@ jobs:
             architecture: x64
             artifact_pattern: "*"
           - name: linux-x64
-            os: ubuntu-18.04
+            os: ubuntu-22.04
             architecture: x64
             artifact_pattern: "*"
           - name: osx-x64
