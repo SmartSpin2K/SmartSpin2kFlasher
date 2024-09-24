@@ -61,8 +61,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SS2kFlasher-${{ matrix.runs-on }}
-          path: SmartSpin2kFlasher-${{ matrix.runs-on }}.zip
+          name: SmartSpin2kFlasher-${{ matrix.name }}
+          path: SmartSpin2kFlasher-${{ matrix.name }}.zip
 
   merge:
     runs-on: ubuntu-latest
