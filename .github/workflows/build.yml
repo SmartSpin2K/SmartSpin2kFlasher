@@ -62,8 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: my-artifact-${{ matrix.runs-on }}
-          path: |
-            SmartSpin2kFlasher-${{ matrix.name }}.zip
+          path: SmartSpin2kFlasher-${{ matrix.runs-on }}.zip
 
   release:
     needs: build
