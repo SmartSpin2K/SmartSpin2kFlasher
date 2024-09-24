@@ -5,10 +5,10 @@ on:
     tags:
       - 'v*'
     branches:
-      - master
+      - Filesystem-uploading
   pull_request:
     branches:
-      - master
+      - Filesystem-uploading
 
 jobs:
   build:
