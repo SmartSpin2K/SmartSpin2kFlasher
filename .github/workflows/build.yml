@@ -71,8 +71,8 @@ jobs:
       - name: Merge Artifacts
         uses: actions/upload-artifact/merge@v4
         with:
-          name: all-my-files
-          pattern: my-artifact-*
+          name: SmartSpin2kFlasher
+          pattern: SmartSpin2kFlasher-*
 
   release:
     needs: build
@@ -82,7 +82,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: my-artifact-*
+          pattern: SmartSpin2kFlasher-*
           merge-multiple: true
           
       - name: Get tag info
