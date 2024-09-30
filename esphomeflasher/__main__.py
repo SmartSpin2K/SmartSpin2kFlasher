@@ -84,7 +84,7 @@ def run_esphomeflasher(argv):
     port = select_port(args)
 
     if args.show_logs:
-        serial_port = serial.Serial(port, baudrate=512000)
+        serial_port = serial.Serial(port, baudrate=115200)
         show_logs(serial_port)
         return
 
