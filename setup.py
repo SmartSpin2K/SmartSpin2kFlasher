@@ -4,7 +4,7 @@ import os
 
 from setuptools import setup, find_packages
 
-from esphomeflasher import const
+from smartspin2kflasher import const
 
 PROJECT_NAME = 'smartspin2kflasher'
 PROJECT_PACKAGE_NAME = 'smartspin2kflasher'
@@ -52,7 +52,7 @@ setup(
     keywords=['home', 'automation'],
     entry_points={
         'console_scripts': [
-            'SmartSpin2KFlasher = esphomeflasher.__main__:main'
+            'SmartSpin2KFlasher = smartspin2kflasher.__main__:main'
         ]
     },
     packages=find_packages(include="esphomerelease.*")

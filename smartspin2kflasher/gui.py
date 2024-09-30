@@ -9,8 +9,8 @@ from wx.lib.embeddedimage import PyEmbeddedImage
 import wx.lib.inspection
 import wx.lib.mixins.inspection
 
-from esphomeflasher.helpers import list_serial_ports
-from esphomeflasher.udp_logger_window import UdpLoggerWindow
+from smartspin2kflasher.helpers import list_serial_ports
+from smartspin2kflasher.udp_logger_window import UdpLoggerWindow
 
 
 COLOR_RE = re.compile(r'(?:\033)(?:\[(.*?)[@-~]|\].*?(?:\007|\033\\))')
@@ -159,12 +159,12 @@ class FlashingThread(threading.Thread):
 
     def run(self):
         try:
-            from esphomeflasher.__main__ import run_esphomeflasher
+            from smartspin2kflasher.__main__ import run_smartspin2kflasher
 
             argv = ['smartspin2kflasher', '--port', self._port, self._firmware]
             if self._show_logs:
                 argv.append('--show-logs')
-            run_esphomeflasher(argv)
+            run_smartspin2kflasher(argv)
         except Exception as e:
             print("Unexpected error: {}".format(e))
             raise

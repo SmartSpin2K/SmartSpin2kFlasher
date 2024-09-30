@@ -8,12 +8,12 @@ import time
 import esptool
 import serial
 
-from esphomeflasher import const
-from esphomeflasher.common import ESP32ChipInfo, EsphomeflasherError, chip_run_stub, \
+from smartspin2kflasher import const
+from smartspin2kflasher.common import ESP32ChipInfo, Smartspin2kflasherError, chip_run_stub, \
     configure_write_flash_args, detect_chip, detect_flash_size, read_chip_info
-from esphomeflasher.const import ESP32_DEFAULT_BOOTLOADER_FORMAT, ESP32_DEFAULT_OTA_DATA, \
+from smartspin2kflasher.const import ESP32_DEFAULT_BOOTLOADER_FORMAT, ESP32_DEFAULT_OTA_DATA, \
     ESP32_DEFAULT_PARTITIONS, ESP32_FILESYSTEM
-from esphomeflasher.helpers import list_serial_ports
+from smartspin2kflasher.helpers import list_serial_ports
 
 
 def parse_args(argv):
@@ -49,13 +49,13 @@ def select_port(args):
         return args.port
     ports = list_serial_ports()
     if not ports:
-        raise EsphomeflasherError("No serial port found!")
+        raise Smartspin2kflasherError("No serial port found!")
     if len(ports) != 1:
         print("Found more than one serial port:")
         for port, desc in ports:
             print(u" * {} ({})".format(port, desc))
         print("Please choose one with the --port argument.")
-        raise EsphomeflasherError
+        raise Smartspin2kflasherError
     print(u"Auto-detected serial port: {}".format(ports[0][0]))
     return ports[0][0]
 
@@ -79,7 +79,7 @@ def show_logs(serial_port):
                 print(message.encode('ascii', 'backslashreplace'))
 
 
-def run_esphomeflasher(argv):
+def run_smartspin2kflasher(argv):
     args = parse_args(argv)
     port = select_port(args)
 
@@ -93,7 +93,7 @@ def run_esphomeflasher(argv):
     try:
         firmware = open(args.binary, 'rb')
     except IOError as err:
-        raise EsphomeflasherError("Error opening binary: {}".format(err))
+        raise Smartspin2kflasherError("Error opening binary: {}".format(err))
 
     # Detect chip and gather information
     chip = detect_chip(port, args.esp8266, args.esp32)
@@ -121,12 +121,12 @@ def run_esphomeflasher(argv):
         try:
             stub_chip.change_baud(args.upload_baud_rate)
         except esptool.FatalError as err:
-            raise EsphomeflasherError("Error changing ESP upload baud rate: {}".format(err))
+            raise Smartspin2kflasherError("Error changing ESP upload baud rate: {}".format(err))
 
         # Verify if the higher baud rate works by checking the flash size
         try:
             flash_size = detect_flash_size(stub_chip)
-        except EsphomeflasherError as err:
+        except Smartspin2kflasherError as err:
             print("Chip does not support baud rate {}, changing back to 115200".format(args.upload_baud_rate))
             stub_chip._port.close()
             chip = detect_chip(port, args.esp8266, args.esp32)
@@ -150,13 +150,13 @@ def run_esphomeflasher(argv):
         filesystem = open(ESP32_FILESYSTEM, 'rb')
         print("Opened filesystem binary at {}".format(ESP32_FILESYSTEM))
     except IOError as err:
-        raise EsphomeflasherError("Error opening filesystem: {}".format(err))
+        raise Smartspin2kflasherError("Error opening filesystem: {}".format(err))
 
     # Set flash parameters
     try:
         stub_chip.flash_set_parameters(esptool.flash_size_bytes(flash_size))
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Error setting flash parameters: {}".format(err))
+        raise Smartspin2kflasherError("Error setting flash parameters: {}".format(err))
 
     # Flash firmware and filesystem in a single operation
     try:
@@ -166,7 +166,7 @@ def run_esphomeflasher(argv):
             (0x3D0000, filesystem)     # Flash filesystem at 0x3D0000
         ])
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Error while writing flash: {}".format(err))
+        raise Smartspin2kflasherError("Error while writing flash: {}".format(err))
 
     print("Hard Resetting...")
     stub_chip.hard_reset()
@@ -186,11 +186,11 @@ def run_esphomeflasher(argv):
 def main():
     try:
         if len(sys.argv) <= 1:
-            from esphomeflasher import gui
+            from smartspin2kflasher import gui
 
             return gui.main() or 0
-        return run_esphomeflasher(sys.argv) or 0
-    except EsphomeflasherError as err:
+        return run_smartspin2kflasher(sys.argv) or 0
+    except Smartspin2kflasherError as err:
         msg = str(err)
         if msg:
             print(msg)

@@ -54,7 +54,7 @@ jobs:
           pip install -e .
       - name: Run PyInstaller
         run: |
-          python -m PyInstaller.__main__ -F -w -n SmartSpin2kFlasher -i icon.ico esphomeflasher/__main__.py
+          python -m PyInstaller.__main__ -F -w -n SmartSpin2kFlasher -i icon.ico smartspin2kflasher/__main__.py
       - name: Create artifacts
         run: |
           7z a SmartSpin2kFlasher-${{ matrix.name }}.zip ./dist/${{ matrix.artifact_pattern }}
