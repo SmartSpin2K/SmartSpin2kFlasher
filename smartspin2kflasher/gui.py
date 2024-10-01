@@ -232,7 +232,7 @@ class MainFrame(wx.Frame):
         file_picker.Bind(wx.EVT_FILEPICKER_CHANGED, on_pick_file)
 
         # Flash Button
-        flash_button = wx.Button(panel, -1, "Flash ESP")
+        flash_button = wx.Button(panel, -1, "Flash SmartSpin2k")
         flash_button.Bind(wx.EVT_BUTTON, on_clicked)
 
         # log-Buttons
@@ -298,9 +298,9 @@ class MainFrame(wx.Frame):
 class App(wx.App, wx.lib.mixins.inspection.InspectionMixin):
     def OnInit(self):
         wx.SystemOptions.SetOption("mac.window-plain-transition", 1)
-        self.SetAppName("SmartSpin2kFlasher (Based on esphome-flasher)")
+        self.SetAppName("SmartSpin2kFlasher")
 
-        frame = MainFrame(None, "SmartSpin2kFlasher (Based on esphome-flasher)")
+        frame = MainFrame(None, "SmartSpin2kFlasher")
         frame.Show()
 
         return True
