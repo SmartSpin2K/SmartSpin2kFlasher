@@ -9,8 +9,8 @@ from wx.lib.embeddedimage import PyEmbeddedImage
 import wx.lib.inspection
 import wx.lib.mixins.inspection
 
-from esphomeflasher.helpers import list_serial_ports
-from esphomeflasher.udp_logger_window import UdpLoggerWindow
+from smartspin2kflasher.helpers import list_serial_ports
+from smartspin2kflasher.udp_logger_window import UdpLoggerWindow
 
 
 COLOR_RE = re.compile(r'(?:\033)(?:\[(.*?)[@-~]|\].*?(?:\007|\033\\))')
@@ -159,12 +159,12 @@ class FlashingThread(threading.Thread):
 
     def run(self):
         try:
-            from esphomeflasher.__main__ import run_esphomeflasher
+            from smartspin2kflasher.__main__ import run_smartspin2kflasher
 
             argv = ['smartspin2kflasher', '--port', self._port, self._firmware]
             if self._show_logs:
                 argv.append('--show-logs')
-            run_esphomeflasher(argv)
+            run_smartspin2kflasher(argv)
         except Exception as e:
             print("Unexpected error: {}".format(e))
             raise
@@ -232,7 +232,7 @@ class MainFrame(wx.Frame):
         file_picker.Bind(wx.EVT_FILEPICKER_CHANGED, on_pick_file)
 
         # Flash Button
-        flash_button = wx.Button(panel, -1, "Flash ESP")
+        flash_button = wx.Button(panel, -1, "Flash SmartSpin2k")
         flash_button.Bind(wx.EVT_BUTTON, on_clicked)
 
         # log-Buttons
@@ -298,9 +298,9 @@ class MainFrame(wx.Frame):
 class App(wx.App, wx.lib.mixins.inspection.InspectionMixin):
     def OnInit(self):
         wx.SystemOptions.SetOption("mac.window-plain-transition", 1)
-        self.SetAppName("SmartSpin2kFlasher (Based on esphome-flasher)")
+        self.SetAppName("SmartSpin2kFlasher")
 
-        frame = MainFrame(None, "SmartSpin2kFlasher (Based on esphome-flasher)")
+        frame = MainFrame(None, "SmartSpin2kFlasher")
         frame.Show()
 
         return True

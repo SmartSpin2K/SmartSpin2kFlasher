@@ -3,11 +3,12 @@ import struct
 
 import esptool
 
-from esphomeflasher.const import HTTP_REGEX
-from esphomeflasher.helpers import prevent_print
+from smartspin2kflasher.const import HTTP_REGEX
+from smartspin2kflasher.const import ESP32_FILESYSTEM_URL
+from smartspin2kflasher.helpers import prevent_print
 
 
-class EsphomeflasherError(Exception):
+class Smartspin2kflasherError(Exception):
     pass
 
 
@@ -81,7 +82,7 @@ def read_chip_property(func, *args, **kwargs):
     try:
         return prevent_print(func, *args, **kwargs)
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Reading chip details failed: {}".format(err))
+        raise Smartspin2kflasherError("Reading chip details failed: {}".format(err))
 
 
 def read_chip_info(chip):
@@ -100,14 +101,14 @@ def read_chip_info(chip):
         model = read_chip_property(chip.get_chip_description)
         chip_id = read_chip_property(chip.chip_id)
         return ESP8266ChipInfo(model, mac, chip_id)
-    raise EsphomeflasherError("Unknown chip type {}".format(type(chip)))
+    raise Smartspin2kflasherError("Unknown chip type {}".format(type(chip)))
 
 
 def chip_run_stub(chip):
     try:
         return chip.run_stub()
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Error putting ESP in stub flash mode: {}".format(err))
+        raise Smartspin2kflasherError("Error putting ESP in stub flash mode: {}".format(err))
 
 
 def detect_flash_size(stub_chip):
@@ -121,7 +122,7 @@ def read_firmware_info(firmware):
 
     magic, _, flash_mode_raw, flash_size_freq = struct.unpack("BBBB", header)
     if magic != esptool.ESPLoader.ESP_IMAGE_MAGIC:
-        raise EsphomeflasherError(
+        raise Smartspin2kflasherError(
             "The firmware binary is invalid (magic byte={:02X}, should be {:02X})"
             "".format(magic, esptool.ESPLoader.ESP_IMAGE_MAGIC))
     flash_freq_raw = flash_size_freq & 0x0F
@@ -142,10 +143,10 @@ def open_downloadable_binary(path):
             response = requests.get(path)
             response.raise_for_status()
         except requests.exceptions.Timeout as err:
-            raise EsphomeflasherError(
+            raise Smartspin2kflasherError(
                 "Timeout while retrieving firmware file '{}': {}".format(path, err))
         except requests.exceptions.RequestException as err:
-            raise EsphomeflasherError(
+            raise Smartspin2kflasherError(
                 "Error while retrieving firmware file '{}': {}".format(path, err))
 
         binary = io.BytesIO()
@@ -156,7 +157,7 @@ def open_downloadable_binary(path):
     try:
         return open(path, 'rb')
     except IOError as err:
-        raise EsphomeflasherError("Error opening binary '{}': {}".format(path, err))
+        raise Smartspin2kflasherError("Error opening binary '{}': {}".format(path, err))
 
 
 def format_bootloader_path(path, flash_mode, flash_freq):
@@ -170,17 +171,19 @@ def configure_write_flash_args(info, firmware_path, flash_size,
     flash_mode, flash_freq = read_firmware_info(firmware)
     if isinstance(info, ESP32ChipInfo):
         if flash_freq in ('26m', '20m'):
-            raise EsphomeflasherError(
+            raise Smartspin2kflasherError(
                 "No bootloader available for flash frequency {}".format(flash_freq))
         bootloader = open_downloadable_binary(
             format_bootloader_path(bootloader_path, flash_mode, flash_freq))
         partitions = open_downloadable_binary(partitions_path)
         otadata = open_downloadable_binary(otadata_path)
+        filesystem = open_downloadable_binary(ESP32_FILESYSTEM_URL)
 
         addr_filename.append((0x1000, bootloader))
         addr_filename.append((0x8000, partitions))
         addr_filename.append((0xE000, otadata))
         addr_filename.append((0x10000, firmware))
+        addr_filename.append((0x3D0000, filesystem))
     else:
         addr_filename.append((0x0, firmware))
     return MockEsptoolArgs(flash_size, addr_filename, flash_mode, flash_freq)
@@ -192,13 +195,13 @@ def detect_chip(port, force_esp8266=False, force_esp32=False):
         chip = klass(port)
     else:
         try:
-            chip = esptool.ESPLoader.detect_chip(port)
+            chip = esptool.detect_chip(port)
         except esptool.FatalError as err:
-            raise EsphomeflasherError("ESP Chip Auto-Detection failed: {}".format(err))
+            raise Smartspin2kflasherError("ESP Chip Auto-Detection failed: {}".format(err))
 
     try:
         chip.connect()
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Error connecting to ESP: {}".format(err))
+        raise Smartspin2kflasherError("Error connecting to ESP: {}".format(err))
 
     return chip

@@ -8,12 +8,12 @@ import time
 import esptool
 import serial
 
-from esphomeflasher import const
-from esphomeflasher.common import ESP32ChipInfo, EsphomeflasherError, chip_run_stub, \
+from smartspin2kflasher import const
+from smartspin2kflasher.common import ESP32ChipInfo, Smartspin2kflasherError, chip_run_stub, \
     configure_write_flash_args, detect_chip, detect_flash_size, read_chip_info
-from esphomeflasher.const import ESP32_DEFAULT_BOOTLOADER_FORMAT, ESP32_DEFAULT_OTA_DATA, \
-    ESP32_DEFAULT_PARTITIONS
-from esphomeflasher.helpers import list_serial_ports
+from smartspin2kflasher.const import ESP32_DEFAULT_BOOTLOADER_FORMAT, ESP32_DEFAULT_OTA_DATA, \
+    ESP32_DEFAULT_PARTITIONS, ESP32_FILESYSTEM
+from smartspin2kflasher.helpers import list_serial_ports
 
 
 def parse_args(argv):
@@ -23,7 +23,7 @@ def parse_args(argv):
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument('--esp8266', action='store_true')
     group.add_argument('--esp32', action='store_true')
-    group.add_argument('--upload-baud-rate', type=int, default=460800,
+    group.add_argument('--upload-baud-rate', type=int, default=921600,
                        help="Baud rate to upload with (not for logging)")
     parser.add_argument('--bootloader',
                         help="(ESP32-only) The bootloader to flash.",
@@ -49,13 +49,13 @@ def select_port(args):
         return args.port
     ports = list_serial_ports()
     if not ports:
-        raise EsphomeflasherError("No serial port found!")
+        raise Smartspin2kflasherError("No serial port found!")
     if len(ports) != 1:
         print("Found more than one serial port:")
         for port, desc in ports:
             print(u" * {} ({})".format(port, desc))
         print("Please choose one with the --port argument.")
-        raise EsphomeflasherError
+        raise Smartspin2kflasherError
     print(u"Auto-detected serial port: {}".format(ports[0][0]))
     return ports[0][0]
 
@@ -79,24 +79,27 @@ def show_logs(serial_port):
                 print(message.encode('ascii', 'backslashreplace'))
 
 
-def run_esphomeflasher(argv):
+def run_smartspin2kflasher(argv):
     args = parse_args(argv)
     port = select_port(args)
 
+    # If only showing logs, do that directly
     if args.show_logs:
         serial_port = serial.Serial(port, baudrate=115200)
         show_logs(serial_port)
         return
 
+    # Open firmware binary
     try:
         firmware = open(args.binary, 'rb')
     except IOError as err:
-        raise EsphomeflasherError("Error opening binary: {}".format(err))
+        raise Smartspin2kflasherError("Error opening binary: {}".format(err))
+
+    # Detect chip and gather information
     chip = detect_chip(port, args.esp8266, args.esp32)
     info = read_chip_info(chip)
 
-    print()
-    print("Chip Info:")
+    print("\nChip Info:")
     print(" - Chip Family: {}".format(info.family))
     print(" - Chip Model: {}".format(info.model))
     if isinstance(info, ESP32ChipInfo):
@@ -108,24 +111,23 @@ def run_esphomeflasher(argv):
             'YES' if info.has_factory_calibrated_adc else 'NO'))
     else:
         print(" - Chip ID: {:08X}".format(info.chip_id))
-
     print(" - MAC Address: {}".format(info.mac))
 
     stub_chip = chip_run_stub(chip)
     flash_size = None
 
+    # Try changing the baud rate if it's different from 115200
     if args.upload_baud_rate != 115200:
         try:
             stub_chip.change_baud(args.upload_baud_rate)
         except esptool.FatalError as err:
-            raise EsphomeflasherError("Error changing ESP upload baud rate: {}".format(err))
+            raise Smartspin2kflasherError("Error changing ESP upload baud rate: {}".format(err))
 
-        # Check if the higher baud rate works
+        # Verify if the higher baud rate works by checking the flash size
         try:
             flash_size = detect_flash_size(stub_chip)
-        except EsphomeflasherError as err:
-            # Go back to old baud rate by recreating chip instance
-            print("Chip does not support baud rate {}, changing to 115200".format(args.upload_baud_rate))
+        except Smartspin2kflasherError as err:
+            print("Chip does not support baud rate {}, changing back to 115200".format(args.upload_baud_rate))
             stub_chip._port.close()
             chip = detect_chip(port, args.esp8266, args.esp32)
             stub_chip = chip_run_stub(chip)
@@ -133,25 +135,39 @@ def run_esphomeflasher(argv):
     if flash_size is None:
         flash_size = detect_flash_size(stub_chip)
 
-
     print(" - Flash Size: {}".format(flash_size))
 
-    mock_args = configure_write_flash_args(info, firmware, flash_size,
-                                           args.bootloader, args.partitions,
-                                           args.otadata)
+    # Configure write flash arguments for firmware
+    firmware_mock_args = configure_write_flash_args(info, firmware, flash_size, 
+                                                    args.bootloader, args.partitions, 
+                                                    args.otadata)
 
-    print(" - Flash Mode: {}".format(mock_args.flash_mode))
-    print(" - Flash Frequency: {}Hz".format(mock_args.flash_freq.upper()))
+    print(" - Flash Mode: {}".format(firmware_mock_args.flash_mode))
+    print(" - Flash Frequency: {}Hz".format(firmware_mock_args.flash_freq.upper()))
 
+    # Try opening the filesystem (SPIFFS or LittleFS) binary
+    try:
+        filesystem = open(ESP32_FILESYSTEM, 'rb')
+        print("Opened filesystem binary at {}".format(ESP32_FILESYSTEM))
+    except IOError as err:
+        raise Smartspin2kflasherError("Error opening filesystem: {}".format(err))
+
+    # Set flash parameters
     try:
         stub_chip.flash_set_parameters(esptool.flash_size_bytes(flash_size))
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Error setting flash parameters: {}".format(err))
+        raise Smartspin2kflasherError("Error setting flash parameters: {}".format(err))
+    
+    # Flash firmware and filesystem in a single operation
 
     try:
+        mock_args = configure_write_flash_args(info, firmware, flash_size, args.bootloader, args.partitions, args.otadata)
+        mock_args.force = True
+        mock_args.chip = "esp32"
         esptool.write_flash(stub_chip, mock_args)
+        esptool.write_mem
     except esptool.FatalError as err:
-        raise EsphomeflasherError("Error while writing flash: {}".format(err))
+        raise Smartspin2kflasherError("Error while writing flash: {}".format(err))
 
     print("Hard Resetting...")
     stub_chip.hard_reset()
@@ -159,22 +175,23 @@ def run_esphomeflasher(argv):
     print("Done! Flashing is complete!")
     print()
 
+    # Change baud rate to 512000 for faster logging, if needed
     if args.upload_baud_rate != 512000:
         stub_chip._port.baudrate = 512000
-        time.sleep(0.05)  # get rid of crap sent during baud rate change
+        time.sleep(0.05)  # Allow time for the baud rate change
         stub_chip._port.flushInput()
 
+    # Show logs after flashing
     show_logs(stub_chip._port)
-
 
 def main():
     try:
         if len(sys.argv) <= 1:
-            from esphomeflasher import gui
+            from smartspin2kflasher import gui
 
             return gui.main() or 0
-        return run_esphomeflasher(sys.argv) or 0
-    except EsphomeflasherError as err:
+        return run_smartspin2kflasher(sys.argv) or 0
+    except Smartspin2kflasherError as err:
         msg = str(err)
         if msg:
             print(msg)
