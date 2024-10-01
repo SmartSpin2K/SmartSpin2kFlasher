@@ -4,6 +4,7 @@ import struct
 import esptool
 
 from smartspin2kflasher.const import HTTP_REGEX
+from smartspin2kflasher.const import ESP32_FILESYSTEM_URL
 from smartspin2kflasher.helpers import prevent_print
 
 
@@ -176,11 +177,13 @@ def configure_write_flash_args(info, firmware_path, flash_size,
             format_bootloader_path(bootloader_path, flash_mode, flash_freq))
         partitions = open_downloadable_binary(partitions_path)
         otadata = open_downloadable_binary(otadata_path)
+        filesystem = open_downloadable_binary(ESP32_FILESYSTEM_URL)
 
         addr_filename.append((0x1000, bootloader))
         addr_filename.append((0x8000, partitions))
         addr_filename.append((0xE000, otadata))
         addr_filename.append((0x10000, firmware))
+        addr_filename.append((0x3D0000, filesystem))
     else:
         addr_filename.append((0x0, firmware))
     return MockEsptoolArgs(flash_size, addr_filename, flash_mode, flash_freq)
@@ -192,7 +195,7 @@ def detect_chip(port, force_esp8266=False, force_esp32=False):
         chip = klass(port)
     else:
         try:
-            chip = esptool.ESPLoader.detect_chip(port)
+            chip = esptool.detect_chip(port)
         except esptool.FatalError as err:
             raise Smartspin2kflasherError("ESP Chip Auto-Detection failed: {}".format(err))
 

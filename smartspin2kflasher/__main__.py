@@ -23,7 +23,7 @@ def parse_args(argv):
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument('--esp8266', action='store_true')
     group.add_argument('--esp32', action='store_true')
-    group.add_argument('--upload-baud-rate', type=int, default=460800,
+    group.add_argument('--upload-baud-rate', type=int, default=921600,
                        help="Baud rate to upload with (not for logging)")
     parser.add_argument('--bootloader',
                         help="(ESP32-only) The bootloader to flash.",
@@ -157,14 +157,15 @@ def run_smartspin2kflasher(argv):
         stub_chip.flash_set_parameters(esptool.flash_size_bytes(flash_size))
     except esptool.FatalError as err:
         raise Smartspin2kflasherError("Error setting flash parameters: {}".format(err))
-
+    
     # Flash firmware and filesystem in a single operation
+
     try:
-        print("Flashing firmware at 0x10000 and filesystem at 0x3D0000")
-        esptool.write_flash(stub_chip, [
-            (0x10000, firmware),       # Flash firmware at 0x10000
-            (0x3D0000, filesystem)     # Flash filesystem at 0x3D0000
-        ])
+        mock_args = configure_write_flash_args(info, firmware, flash_size, args.bootloader, args.partitions, args.otadata)
+        mock_args.force = True
+        mock_args.chip = "esp32"
+        esptool.write_flash(stub_chip, mock_args)
+        esptool.write_mem
     except esptool.FatalError as err:
         raise Smartspin2kflasherError("Error while writing flash: {}".format(err))
 

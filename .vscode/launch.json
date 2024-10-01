@@ -11,6 +11,9 @@
             "request": "launch",
             "program": "smartspin2kflasher/__main__.py",
             "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"  // Add this line to include the workspace folder in the Python path
+            }
         },
         {
             "name": "Python: Commandline",
