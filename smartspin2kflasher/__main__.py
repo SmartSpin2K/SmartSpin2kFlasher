@@ -85,7 +85,7 @@ def run_smartspin2kflasher(argv):
 
     # If only showing logs, do that directly
     if args.show_logs:
-        serial_port = serial.Serial(port, baudrate=512000)
+        serial_port = serial.Serial(port, baudrate=115200)
         show_logs(serial_port)
         return
 
