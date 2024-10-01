@@ -195,7 +195,7 @@ def detect_chip(port, force_esp8266=False, force_esp32=False):
         chip = klass(port)
     else:
         try:
-            chip = esptool.detect_chip(port)
+            chip =   esptool.ESPLoader.detect_chip(port)
         except esptool.FatalError as err:
             raise Smartspin2kflasherError("ESP Chip Auto-Detection failed: {}".format(err))
 

@@ -12,7 +12,7 @@ from smartspin2kflasher import const
 from smartspin2kflasher.common import ESP32ChipInfo, Smartspin2kflasherError, chip_run_stub, \
     configure_write_flash_args, detect_chip, detect_flash_size, read_chip_info
 from smartspin2kflasher.const import ESP32_DEFAULT_BOOTLOADER_FORMAT, ESP32_DEFAULT_OTA_DATA, \
-    ESP32_DEFAULT_PARTITIONS, ESP32_FILESYSTEM
+    ESP32_DEFAULT_PARTITIONS
 from smartspin2kflasher.helpers import list_serial_ports
 
 
@@ -144,13 +144,6 @@ def run_smartspin2kflasher(argv):
 
     print(" - Flash Mode: {}".format(firmware_mock_args.flash_mode))
     print(" - Flash Frequency: {}Hz".format(firmware_mock_args.flash_freq.upper()))
-
-    # Try opening the filesystem (SPIFFS or LittleFS) binary
-    try:
-        filesystem = open(ESP32_FILESYSTEM, 'rb')
-        print("Opened filesystem binary at {}".format(ESP32_FILESYSTEM))
-    except IOError as err:
-        raise Smartspin2kflasherError("Error opening filesystem: {}".format(err))
 
     # Set flash parameters
     try:
