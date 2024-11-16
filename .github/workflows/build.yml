@@ -117,17 +117,17 @@ jobs:
 
     - name: Upload artifacts (Standard)
       if: matrix.target != 'chromeos'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: SmartSpin2kFlasher-${{ matrix.os }}-Python${{ matrix.python-version }}
+        name: SmartSpin2kFlasher-${{ matrix.os }}
         path: |
           dist/SmartSpin2kFlasher*
 
     - name: Upload artifacts (ChromeOS)
       if: matrix.target == 'chromeos'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: SmartSpin2kFlasher-ChromeOS-Python${{ matrix.python-version }}
+        name: SmartSpin2kFlasher-ChromeOS
         path: |
           dist/SmartSpin2kFlasher-ChromeOS*
 
@@ -137,10 +137,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         path: artifacts
 
