@@ -26,31 +26,28 @@ jobs:
           if [ -z "$latest_tag" ]; then
             new_tag="v0.0.1"
           else
-            # Extract numbers
-            major=$(echo $latest_tag | sed 's/v\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\)/\1/')
-            minor=$(echo $latest_tag | sed 's/v\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\)/\2/')
-            patch=$(echo $latest_tag | sed 's/v\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\)/\3/')
+            # Remove 'v' prefix and split version
+            version=${latest_tag#v}
+            IFS='.' read -r major minor patch <<< "$version"
             
-            # Increment according to rules
-            if [ "$patch" -eq 9 ]; then
+            # Convert to integers and increment
+            patch=$((10#$patch + 1))
+            if [ $patch -gt 9 ]; then
               patch=0
-              if [ "$minor" -eq 9 ]; then
+              minor=$((10#$minor + 1))
+              if [ $minor -gt 9 ]; then
                 minor=0
-                major=$((major + 1))
-              else
-                minor=$((minor + 1))
+                major=$((10#$major + 1))
               fi
-            else
-              patch=$((patch + 1))
             fi
             
             # Ensure major doesn't exceed 99
-            if [ "$major" -gt 99 ]; then
+            if [ $major -gt 99 ]; then
               echo "Error: Version exceeded v99.9.9"
               exit 1
             fi
             
-            new_tag="v$major.$minor.$patch"
+            new_tag="v${major}.${minor}.${patch}"
           fi
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
           
@@ -93,20 +90,27 @@ jobs:
         pip install pyinstaller
         pip install ifaddr==0.2.0
         
-    - name: Build with PyInstaller (Windows/Linux)
-      if: matrix.os != 'macos-latest' && matrix.target != 'chromeos'
+    - name: Build with PyInstaller (Windows)
+      if: matrix.os == 'windows-latest'
       run: |
         python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
+        mv dist/SmartSpin2kFlasher.exe dist/SmartSpin2kFlasher-windows.exe
+
+    - name: Build with PyInstaller (Linux)
+      if: matrix.os == 'ubuntu-latest' && matrix.target != 'chromeos'
+      run: |
+        python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
+        mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-linux
 
     - name: Build with PyInstaller (macOS)
       if: matrix.os == 'macos-latest'
       run: |
         python -m PyInstaller --clean --onefile --windowed --icon=icon.icns --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
+        mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-macos
 
     - name: Build with PyInstaller (ChromeOS)
       if: matrix.target == 'chromeos'
       run: |
-        # Build with specific options for ChromeOS compatibility
         python -m PyInstaller --clean --onefile \
           --windowed \
           --icon=icon.ico \
