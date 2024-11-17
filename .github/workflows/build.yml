@@ -70,7 +70,7 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         python-version: ['3.10']
         include:
-          # Special build for ChromeOS (Debian-based)
+          # Special build for ChromeOS/Linux (Debian-based)
           - os: ubuntu-latest
             python-version: '3.10'
             target: chromeos
@@ -103,44 +103,48 @@ jobs:
         python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
         mv dist/SmartSpin2kFlasher.exe dist/SmartSpin2kFlasher-windows.exe
 
-    - name: Build with PyInstaller (Linux)
-      if: matrix.os == 'ubuntu-latest' && matrix.target != 'chromeos'
-      run: |
-        python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
-        mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-linux
-
     - name: Build with PyInstaller (macOS)
       if: matrix.os == 'macos-latest'
       run: |
         python -m PyInstaller --clean --onefile --windowed --icon=icon.icns --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
-        mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-macos
+        mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-macos.app
 
-    - name: Build with PyInstaller (ChromeOS)
+    - name: Build with PyInstaller (ChromeOS/Linux)
       if: matrix.target == 'chromeos'
       run: |
         python -m PyInstaller --clean --onefile \
           --windowed \
           --icon=icon.ico \
-          --name=SmartSpin2kFlasher-ChromeOS \
+          --name=SmartSpin2kFlasher \
           --target-arch x86_64 \
           --hidden-import='pkg_resources.py2_warn' \
           smartspin2kflasher/__main__.py
+        # Create both ChromeOS and Linux versions from the same build
+        cp dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-chromeos.AppImage
+        cp dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-linux.AppImage
 
-    - name: Upload artifacts (Standard)
-      if: matrix.target != 'chromeos'
+    - name: Upload Windows artifacts
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: SmartSpin2kFlasher-${{ matrix.os }}
-        path: |
-          dist/SmartSpin2kFlasher*
+        name: SmartSpin2kFlasher-windows
+        path: dist/SmartSpin2kFlasher-windows.exe
 
-    - name: Upload artifacts (ChromeOS)
+    - name: Upload macOS artifacts
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: SmartSpin2kFlasher-macos
+        path: dist/SmartSpin2kFlasher-macos.app
+
+    - name: Upload ChromeOS/Linux artifacts
       if: matrix.target == 'chromeos'
       uses: actions/upload-artifact@v4
       with:
-        name: SmartSpin2kFlasher-ChromeOS
+        name: SmartSpin2kFlasher-linux
         path: |
-          dist/SmartSpin2kFlasher-ChromeOS*
+          dist/SmartSpin2kFlasher-chromeos.AppImage
+          dist/SmartSpin2kFlasher-linux.AppImage
 
   release:
     needs: build
