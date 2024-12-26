@@ -165,6 +165,11 @@ class FlashingThread(threading.Thread):
 
     def run(self):
         try:
+            import os
+            # Set the stub path to our esp32.json location
+            stub_dir = os.path.dirname(os.path.abspath(__file__))
+            os.environ['ESPTOOL_STUB_PATH'] = stub_dir
+            
             from smartspin2kflasher.__main__ import run_smartspin2kflasher
             argv = ['smartspin2kflasher', '--port', self._port, self._firmware]
             run_smartspin2kflasher(argv)
