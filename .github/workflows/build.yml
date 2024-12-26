@@ -110,6 +110,7 @@ jobs:
       run: |
         python -m PyInstaller --clean --onefile --windowed --icon=icon.icns --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
         mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-macos.app
+        cd dist && zip -r SmartSpin2kFlasher-macos.zip SmartSpin2kFlasher-macos.app
 
     - name: Build with PyInstaller (ChromeOS/Linux)
       if: matrix.target == 'chromeos'
@@ -137,7 +138,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: SmartSpin2kFlasher-macos
-        path: dist/SmartSpin2kFlasher-macos.app
+        path: dist/SmartSpin2kFlasher-macos.zip
 
     - name: Upload ChromeOS/Linux artifacts
       if: matrix.target == 'chromeos'
