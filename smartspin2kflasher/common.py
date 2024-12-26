@@ -65,19 +65,6 @@ class ESP32ChipInfo(ChipInfo):
         return data
 
 
-class ESP8266ChipInfo(ChipInfo):
-    def __init__(self, model, mac, chip_id):
-        super(ESP8266ChipInfo, self).__init__("ESP8266", model, mac)
-        self.chip_id = chip_id
-
-    def as_dict(self):
-        data = ChipInfo.as_dict(self)
-        data.update({
-            'chip_id': self.chip_id,
-        })
-        return data
-
-
 def read_chip_property(func, *args, **kwargs):
     try:
         return prevent_print(func, *args, **kwargs)
@@ -87,21 +74,15 @@ def read_chip_property(func, *args, **kwargs):
 
 def read_chip_info(chip):
     mac = ':'.join('{:02X}'.format(x) for x in read_chip_property(chip.read_mac))
-    if isinstance(chip, esptool.ESP32ROM):
-        model = read_chip_property(chip.get_chip_description)
-        features = read_chip_property(chip.get_chip_features)
-        num_cores = 2 if 'Dual Core' in features else 1
-        frequency = next((x for x in ('160MHz', '240MHz') if x in features), '80MHz')
-        has_bluetooth = 'BT' in features
-        has_embedded_flash = 'Embedded Flash' in features
-        has_factory_calibrated_adc = 'VRef calibration in efuse' in features
-        return ESP32ChipInfo(model, mac, num_cores, frequency, has_bluetooth,
-                             has_embedded_flash, has_factory_calibrated_adc)
-    elif isinstance(chip, esptool.ESP8266ROM):
-        model = read_chip_property(chip.get_chip_description)
-        chip_id = read_chip_property(chip.chip_id)
-        return ESP8266ChipInfo(model, mac, chip_id)
-    raise Smartspin2kflasherError("Unknown chip type {}".format(type(chip)))
+    model = read_chip_property(chip.get_chip_description)
+    features = read_chip_property(chip.get_chip_features)
+    num_cores = 2 if 'Dual Core' in features else 1
+    frequency = next((x for x in ('160MHz', '240MHz') if x in features), '80MHz')
+    has_bluetooth = 'BT' in features
+    has_embedded_flash = 'Embedded Flash' in features
+    has_factory_calibrated_adc = 'VRef calibration in efuse' in features
+    return ESP32ChipInfo(model, mac, num_cores, frequency, has_bluetooth,
+                         has_embedded_flash, has_factory_calibrated_adc)
 
 
 def chip_run_stub(chip):
@@ -165,43 +146,40 @@ def format_bootloader_path(path, flash_mode, flash_freq):
 
 
 def configure_write_flash_args(info, firmware_path, flash_size,
-                               bootloader_path, partitions_path, otadata_path):
+                                bootloader_path, partitions_path, otadata_path):
     addr_filename = []
     firmware = open_downloadable_binary(firmware_path)
     flash_mode, flash_freq = read_firmware_info(firmware)
-    if isinstance(info, ESP32ChipInfo):
-        if flash_freq in ('26m', '20m'):
-            raise Smartspin2kflasherError(
-                "No bootloader available for flash frequency {}".format(flash_freq))
-        bootloader = open_downloadable_binary(
-            format_bootloader_path(bootloader_path, flash_mode, flash_freq))
-        partitions = open_downloadable_binary(partitions_path)
-        otadata = open_downloadable_binary(otadata_path)
-        filesystem = open_downloadable_binary(ESP32_FILESYSTEM_URL)
+    
+    if flash_freq in ('26m', '20m'):
+        raise Smartspin2kflasherError(
+            "No bootloader available for flash frequency {}".format(flash_freq))
+            
+    bootloader = open_downloadable_binary(
+        format_bootloader_path(bootloader_path, flash_mode, flash_freq))
+    partitions = open_downloadable_binary(partitions_path)
+    otadata = open_downloadable_binary(otadata_path)
+    filesystem = open_downloadable_binary(ESP32_FILESYSTEM_URL)
 
-        addr_filename.append((0x1000, bootloader))
-        addr_filename.append((0x8000, partitions))
-        addr_filename.append((0xE000, otadata))
-        addr_filename.append((0x10000, firmware))
-        addr_filename.append((0x3D0000, filesystem))
-    else:
-        addr_filename.append((0x0, firmware))
+    addr_filename.append((0x1000, bootloader))
+    addr_filename.append((0x8000, partitions))
+    addr_filename.append((0xE000, otadata))
+    addr_filename.append((0x10000, firmware))
+    addr_filename.append((0x3D0000, filesystem))
+    
     return MockEsptoolArgs(flash_size, addr_filename, flash_mode, flash_freq)
 
 
-def detect_chip(port, force_esp8266=False, force_esp32=False):
-    if force_esp8266 or force_esp32:
-        klass = esptool.ESP32ROM if force_esp32 else esptool.ESP8266ROM
-        chip = klass(port)
-    else:
-        try:
-            chip = esptool.ESPLoader.detect_chip(port)
-        except esptool.FatalError as err:
-            raise Smartspin2kflasherError("ESP Chip Auto-Detection failed: {}".format(err))
+class MockConnectArgs:
+    def __init__(self, baud=None):
+        self.no_stub = False
+        self.baud = baud
 
+def detect_chip(port, baudrate=None):
     try:
-        chip.connect()
+        args = MockConnectArgs(baud=baudrate)
+        chip = esptool.ESP32ROM(port)
+        chip.connect(args)
+        return chip
     except esptool.FatalError as err:
-        raise Smartspin2kflasherError("Error connecting to ESP: {}".format(err))
-
-    return chip
+        raise Smartspin2kflasherError("Error connecting to ESP32: {}".format(err))

@@ -2,6 +2,7 @@
 import re
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
@@ -155,22 +156,22 @@ class RedirectText:
         pass
 
 class FlashingThread(threading.Thread):
-    def __init__(self, parent, firmware, port, show_logs=False):
+    def __init__(self, parent, firmware, port):
         threading.Thread.__init__(self)
         self.daemon = True
         self._parent = parent
         self._firmware = firmware
         self._port = port
-        self._show_logs = show_logs
 
     def run(self):
         try:
             from smartspin2kflasher.__main__ import run_smartspin2kflasher
-
             argv = ['smartspin2kflasher', '--port', self._port, self._firmware]
-            if self._show_logs:
-                argv.append('--show-logs')
             run_smartspin2kflasher(argv)
+            # Start showing logs automatically after successful flash
+            print("\nAutomatically showing logs after successful flash:")
+            time.sleep(1)  # Give device time to reset
+            self._parent._on_logs()
         except Exception as e:
             print("Unexpected error: {}".format(e))
             raise
@@ -278,6 +279,26 @@ class MainFrame(tk.Tk):
             self.choice.set(ports[0])
             self._port = ports[0]
 
+    def show_logs(self):
+        import serial
+        from datetime import datetime
+        
+        try:
+            serial_port = serial.Serial(self._port, baudrate=115200)
+            with serial_port:
+                while True:
+                    try:
+                        raw = serial_port.readline()
+                        text = raw.decode(errors='ignore')
+                        line = text.replace('\r', '').replace('\n', '')
+                        time = datetime.now().time().strftime('[%H:%M:%S]')
+                        self.log_message(time + line + '\n')
+                    except serial.SerialException:
+                        print("Serial port closed!")
+                        return
+        except serial.SerialException as err:
+            print(f"Error opening serial port for logs: {err}")
+
     def _on_flash(self):
         self.console_ctrl.configure(state='normal')
         self.console_ctrl.delete('1.0', tk.END)
@@ -289,8 +310,11 @@ class MainFrame(tk.Tk):
         self.console_ctrl.configure(state='normal')
         self.console_ctrl.delete('1.0', tk.END)
         self.console_ctrl.configure(state='disabled')
-        worker = FlashingThread(self, 'dummy', self._port, show_logs=True)
-        worker.start()
+        
+        # Start logs in a thread
+        import threading
+        log_thread = threading.Thread(target=self.show_logs, daemon=True)
+        log_thread.start()
 
     def _on_logs_udp(self):
         logger_window = UdpLoggerWindow(self)

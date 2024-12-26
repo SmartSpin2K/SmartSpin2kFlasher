@@ -20,10 +20,7 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(prog='smartspin2kflasher {}'.format(const.__version__))
     parser.add_argument('-p', '--port',
                         help="Select the USB/COM port for uploading.")
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('--esp8266', action='store_true')
-    group.add_argument('--esp32', action='store_true')
-    group.add_argument('--upload-baud-rate', type=int, default=921600,
+    parser.add_argument('--upload-baud-rate', type=int, default=921600,
                        help="Baud rate to upload with (not for logging)")
     parser.add_argument('--bootloader',
                         help="(ESP32-only) The bootloader to flash.",
@@ -96,21 +93,19 @@ def run_smartspin2kflasher(argv):
         raise Smartspin2kflasherError("Error opening binary: {}".format(err))
 
     # Detect chip and gather information
-    chip = detect_chip(port, args.esp8266, args.esp32)
+    baudrate = serial.Serial(port).baudrate
+    chip = detect_chip(port, baudrate)
     info = read_chip_info(chip)
 
     print("\nChip Info:")
     print(" - Chip Family: {}".format(info.family))
     print(" - Chip Model: {}".format(info.model))
-    if isinstance(info, ESP32ChipInfo):
-        print(" - Number of Cores: {}".format(info.num_cores))
-        print(" - Max CPU Frequency: {}".format(info.cpu_frequency))
-        print(" - Has Bluetooth: {}".format('YES' if info.has_bluetooth else 'NO'))
-        print(" - Has Embedded Flash: {}".format('YES' if info.has_embedded_flash else 'NO'))
-        print(" - Has Factory-Calibrated ADC: {}".format(
-            'YES' if info.has_factory_calibrated_adc else 'NO'))
-    else:
-        print(" - Chip ID: {:08X}".format(info.chip_id))
+    print(" - Number of Cores: {}".format(info.num_cores))
+    print(" - Max CPU Frequency: {}".format(info.cpu_frequency))
+    print(" - Has Bluetooth: {}".format('YES' if info.has_bluetooth else 'NO'))
+    print(" - Has Embedded Flash: {}".format('YES' if info.has_embedded_flash else 'NO'))
+    print(" - Has Factory-Calibrated ADC: {}".format(
+        'YES' if info.has_factory_calibrated_adc else 'NO'))
     print(" - MAC Address: {}".format(info.mac))
 
     stub_chip = chip_run_stub(chip)
@@ -129,7 +124,7 @@ def run_smartspin2kflasher(argv):
         except Smartspin2kflasherError as err:
             print("Chip does not support baud rate {}, changing back to 115200".format(args.upload_baud_rate))
             stub_chip._port.close()
-            chip = detect_chip(port, args.esp8266, args.esp32)
+            chip = detect_chip(port, baudrate)
             stub_chip = chip_run_stub(chip)
 
     if flash_size is None:
@@ -168,14 +163,11 @@ def run_smartspin2kflasher(argv):
     print("Done! Flashing is complete!")
     print()
 
-    # Change baud rate to 115200 for logging
-    if args.upload_baud_rate != 115200:
-        stub_chip._port.baudrate = 115200
-        time.sleep(0.05)  # Allow time for the baud rate change
-        stub_chip._port.flushInput()
-
-    # Show logs after flashing
-    show_logs(stub_chip._port)
+    # Close port after flashing
+    try:
+        stub_chip._port.close()
+    except:
+        pass
 
 def main():
     try:
