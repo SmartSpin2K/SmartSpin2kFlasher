@@ -168,9 +168,9 @@ def run_smartspin2kflasher(argv):
     print("Done! Flashing is complete!")
     print()
 
-    # Change baud rate to 512000 for faster logging, if needed
-    if args.upload_baud_rate != 512000:
-        stub_chip._port.baudrate = 512000
+    # Change baud rate to 115200 for logging
+    if args.upload_baud_rate != 115200:
+        stub_chip._port.baudrate = 115200
         time.sleep(0.05)  # Allow time for the baud rate change
         stub_chip._port.flushInput()
 

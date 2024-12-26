@@ -2,56 +2,88 @@ import ifaddr
 import socket
 from socket import timeout
 import threading
-import wx
+import tkinter as tk
+from tkinter import ttk
 
 UDP_PORT = 10000
 
-
-class UdpLoggerWindow(wx.Frame):
+class UdpLoggerWindow(tk.Toplevel):
     def __init__(self, parent):
-        wx.Frame.__init__(self, parent, -1, "UDP Logger", size=(725, 650),
-                          style=wx.DEFAULT_FRAME_STYLE | wx.NO_FULL_REPAINT_ON_RESIZE)
+        super().__init__(parent)
+        
+        self.title("UDP Logger")
+        self.geometry("725x650")
+        self.minsize(640, 480)
 
-        self.Bind(wx.EVT_CLOSE, self.on_close)
         self._logging_thread = None
         self._running = True
 
-        wx.Frame.__init__(self, parent=parent, title='Udp Logger')
-        self.SetMinSize((640, 480))
+        self._init_ui()
+        
+        # Center the window
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry('{}x{}+{}+{}'.format(width, height, x, y))
 
-        panel = wx.Panel(self)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # ip address selection
-        ip_label = wx.StaticText(panel, label="Network Interface: ", style=wx.ALIGN_CENTRE)
-        ip_choice = wx.Choice(panel, choices=[])
-        ip_addresses = list(self.get_network_interfaces())
-        for ip in ip_addresses:
-            ip_choice.Append(ip.nice_name, ip.ip)
-        ip_choice.Bind(wx.EVT_CHOICE, self.on_select_ip)
+    def _init_ui(self):
+        main_frame = ttk.Frame(self, padding="15")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-        ip_box = wx.BoxSizer(wx.HORIZONTAL)
-        ip_box.Add(ip_label, 0, wx.ALIGN_LEFT, border=5)
-        ip_box.AddStretchSpacer(0)
-        ip_box.Add(ip_choice, 1, wx.EXPAND)
+        # Network interface selection
+        interface_frame = ttk.Frame(main_frame)
+        interface_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        interface_frame.grid_columnconfigure(1, weight=1)
 
-        # logger textCtrl
-        self.console_ctrl = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        self.console_ctrl.SetFont(wx.Font((0, 13), wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.console_ctrl.SetBackgroundColour(wx.BLACK)
-        self.console_ctrl.SetForegroundColour(wx.WHITE)
-        self.console_ctrl.SetDefaultStyle(wx.TextAttr(wx.WHITE))
+        ttk.Label(interface_frame, text="Network Interface: ").grid(row=0, column=0, sticky=tk.W)
+        
+        self.ip_var = tk.StringVar()
+        self.ip_choice = ttk.Combobox(interface_frame, textvariable=self.ip_var)
+        self.ip_choice.grid(row=0, column=1, sticky=(tk.W, tk.E))
+        
+        # Populate network interfaces
+        self.ip_addresses = list(self.get_network_interfaces())
+        choices = []
+        self.ip_data = {}  # Store IP data for each interface
+        for ip in self.ip_addresses:
+            nice_name = ip.nice_name
+            choices.append(nice_name)
+            self.ip_data[nice_name] = ip.ip
+            
+        self.ip_choice['values'] = choices
+        if choices:
+            self.ip_choice.set(choices[0])
+        
+        self.ip_choice.bind('<<ComboboxSelected>>', self._on_select_ip)
 
-        logger_box = wx.BoxSizer(wx.VERTICAL)
-        logger_box.Add(ip_box, 0, wx.BOTTOM, 3)
-        logger_box.Add(self.console_ctrl, 1, wx.EXPAND)
+        # Console
+        self.console_ctrl = tk.Text(main_frame, height=20, width=80, font=('TkFixedFont', 10))
+        self.console_ctrl.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.console_ctrl.configure(state='disabled', fg='white', bg='black')
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=self.console_ctrl.yview)
+        scrollbar.grid(row=1, column=1, sticky=(tk.N, tk.S))
+        self.console_ctrl['yscrollcommand'] = scrollbar.set
 
-        main_box = wx.BoxSizer(wx.VERTICAL)
-        main_box.Add(logger_box, 1, wx.EXPAND | wx.ALL, 15)
-        panel.SetSizerAndFit(main_box)
+        # Configure grid weights
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(1, weight=1)
 
     def log_message(self, message):
         try:
-            self.console_ctrl.AppendText(message)
+            self.console_ctrl.configure(state='normal')
+            if isinstance(message, bytes):
+                message = message.decode('utf-8', errors='replace')
+            self.console_ctrl.insert(tk.END, message)
+            self.console_ctrl.configure(state='disabled')
+            self.console_ctrl.see(tk.END)
         except:  # console_ctrl could be disposed but Thread is running
             pass
 
@@ -70,21 +102,21 @@ class UdpLoggerWindow(wx.Frame):
             sock.bind((ip.ip, UDP_PORT))
             sock.close()
         except Exception as exc:
-            # print(exc)
             return False
         return True
 
-    def on_select_ip(self, event):
-        choice = event.GetEventObject()
-        selection = choice.GetSelection()
-        name = choice.GetString(selection)
-        ip = choice.GetClientData(selection)
-
+    def _on_select_ip(self, event):
         self.stop_thread()
 
-        self._running = True
-        self._logging_thread = threading.Thread(target=self.collect_logs, args=(self.thread_running, name, ip))
-        self._logging_thread.start()
+        selected = self.ip_var.get()
+        ip = self.ip_data.get(selected)
+        if ip:
+            self._running = True
+            self._logging_thread = threading.Thread(
+                target=self.collect_logs,
+                args=(self.thread_running, selected, ip)
+            )
+            self._logging_thread.start()
 
     def collect_logs(self, running, network_name, ip):
         try:
@@ -113,5 +145,6 @@ class UdpLoggerWindow(wx.Frame):
             self._running = False
             self._logging_thread.join()
 
-    def on_close(self):
+    def _on_close(self):
         self.stop_thread()
+        self.destroy()
