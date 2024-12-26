@@ -102,13 +102,13 @@ jobs:
     - name: Build with PyInstaller (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
+        python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --collect-data esptool --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
         mv dist/SmartSpin2kFlasher.exe dist/SmartSpin2kFlasher-windows.exe
 
     - name: Build with PyInstaller (macOS)
       if: matrix.os == 'macos-latest'
       run: |
-        python -m PyInstaller --clean --onefile --windowed --icon=icon.icns --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
+        python -m PyInstaller --clean --onefile --windowed --icon=icon.icns --collect-data esptool --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
         mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-macos.app
         cd dist && zip -r SmartSpin2kFlasher-macos.zip SmartSpin2kFlasher-macos.app
 
@@ -121,6 +121,7 @@ jobs:
           --name=SmartSpin2kFlasher \
           --target-arch x86_64 \
           --hidden-import='pkg_resources.py2_warn' \
+          --collect-data esptool \
           smartspin2kflasher/__main__.py
         # Create both ChromeOS and Linux versions from the same build
         cp dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-chromeos.AppImage
