@@ -172,7 +172,7 @@ def configure_write_flash_args(info, firmware_path, flash_size,
 
 class MockConnectArgs:
     def __init__(self, baud=None):
-        self.no_stub = False
+        self.no_stub = True  # Use no-stub option to avoid address conflicts
         self.baud = baud
 
 def detect_chip(port, baudrate=None):
@@ -180,6 +180,6 @@ def detect_chip(port, baudrate=None):
         args = MockConnectArgs(baud=baudrate)
         chip = esptool.ESP32ROM(port)
         chip.connect(args)
-        return chip
+        return chip  # Return chip directly since we're in no-stub mode
     except esptool.FatalError as err:
         raise Smartspin2kflasherError("Error connecting to ESP32: {}".format(err))
