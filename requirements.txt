@@ -1,4 +1,4 @@
-esptool==4.6.2
+esptool==4.8.1
 requests>=2.26.0,<3
 ifaddr==0.2.0
 Pillow>=10.0.0
