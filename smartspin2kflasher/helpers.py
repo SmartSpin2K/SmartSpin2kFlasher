@@ -72,18 +72,35 @@ def get_latest_smartspin2k_release():
         raise Smartspin2kflasherError("Error fetching latest SmartSpin2k release: {}".format(err))
 
 
-def extract_file_from_zip_url(zip_url, filename):
-    """Download a zip file and extract a specific file from it, returning a BytesIO object."""
+def extract_file_from_zip_url(zip_url, filename, cached_zip_data=None):
+    """Download a zip file and extract a specific file from it, returning a BytesIO object.
+    
+    Args:
+        zip_url: URL to the zip file
+        filename: Name of the file to extract from the zip
+        cached_zip_data: Optional pre-downloaded zip data to avoid re-downloading
+    
+    Returns:
+        BytesIO object containing the extracted file
+    """
     import requests
     from smartspin2kflasher.common import Smartspin2kflasherError
     
     try:
-        # Download the zip file
-        response = requests.get(zip_url, timeout=30)
-        response.raise_for_status()
+        # Use cached data if provided, otherwise download
+        if cached_zip_data is not None:
+            zip_data = cached_zip_data
+        else:
+            # Download the zip file
+            response = requests.get(zip_url, timeout=30)
+            response.raise_for_status()
+            zip_data = io.BytesIO(response.content)
+        
+        # Reset position for reading
+        if hasattr(zip_data, 'seek'):
+            zip_data.seek(0)
         
         # Open the zip from memory
-        zip_data = io.BytesIO(response.content)
         with zipfile.ZipFile(zip_data, 'r') as zip_ref:
             # Find the file (case-insensitive)
             for name in zip_ref.namelist():

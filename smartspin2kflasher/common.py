@@ -12,6 +12,13 @@ class Smartspin2kflasherError(Exception):
     pass
 
 
+# Cache for the SmartSpin2k release to avoid multiple downloads per session
+_smartspin2k_release_cache = {
+    'url': None,
+    'zip_data': None
+}
+
+
 class MockEsptoolArgs(object):
     def __init__(self, flash_size, addr_filename, flash_mode, flash_freq):
         self.compress = True
@@ -117,13 +124,32 @@ def open_downloadable_binary(path):
         path.seek(0)
         return path
 
-    # Handle SmartSpin2k release files
+    # Handle SmartSpin2k release files with caching
     if isinstance(path, str) and path.startswith('SMARTSPIN2K_RELEASE:'):
+        import requests
         from smartspin2kflasher.helpers import get_latest_smartspin2k_release, extract_file_from_zip_url
         
         filename = path.split(':', 1)[1]
-        release_url = get_latest_smartspin2k_release()
-        return extract_file_from_zip_url(release_url, filename)
+        
+        # Check if we have the release URL cached
+        if _smartspin2k_release_cache['url'] is None:
+            _smartspin2k_release_cache['url'] = get_latest_smartspin2k_release()
+        
+        release_url = _smartspin2k_release_cache['url']
+        
+        # Check if we have the zip data cached
+        if _smartspin2k_release_cache['zip_data'] is None:
+            # Download and cache the zip file
+            try:
+                response = requests.get(release_url, timeout=30)
+                response.raise_for_status()
+                _smartspin2k_release_cache['zip_data'] = io.BytesIO(response.content)
+            except requests.exceptions.RequestException as err:
+                raise Smartspin2kflasherError(
+                    "Error downloading SmartSpin2k release: {}".format(err))
+        
+        # Extract the file from the cached zip
+        return extract_file_from_zip_url(release_url, filename, _smartspin2k_release_cache['zip_data'])
 
     if HTTP_REGEX.match(path) is not None:
         import requests
