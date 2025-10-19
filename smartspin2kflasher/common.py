@@ -117,6 +117,14 @@ def open_downloadable_binary(path):
         path.seek(0)
         return path
 
+    # Handle SmartSpin2k release files
+    if isinstance(path, str) and path.startswith('SMARTSPIN2K_RELEASE:'):
+        from smartspin2kflasher.helpers import get_latest_smartspin2k_release, extract_file_from_zip_url
+        
+        filename = path.split(':', 1)[1]
+        release_url = get_latest_smartspin2k_release()
+        return extract_file_from_zip_url(release_url, filename)
+
     if HTTP_REGEX.match(path) is not None:
         import requests
 
