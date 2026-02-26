@@ -16,7 +16,7 @@ jobs:
     outputs:
       new_tag: ${{ steps.tag.outputs.new_tag }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
@@ -24,18 +24,14 @@ jobs:
         id: tag
         run: |
           git fetch --tags
-          # Get only properly formatted version tags (vX.Y.Z)
           latest_tag=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
           if [ -z "$latest_tag" ]; then
             new_tag="v0.0.1"
           else
-            # Extract version numbers using grep
             if [[ $latest_tag =~ v([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
               major="${BASH_REMATCH[1]}"
               minor="${BASH_REMATCH[2]}"
               patch="${BASH_REMATCH[3]}"
-              
-              # Increment patch version
               patch=$((patch + 1))
               if [ $patch -gt 9 ]; then
                 patch=0
@@ -45,13 +41,10 @@ jobs:
                   major=$((major + 1))
                 fi
               fi
-              
-              # Ensure major doesn't exceed 99
               if [ $major -gt 99 ]; then
                 echo "Error: Version exceeded v99.9.9"
                 exit 1
               fi
-              
               new_tag="v${major}.${minor}.${patch}"
             else
               echo "Error: Invalid tag format found"
@@ -69,86 +62,80 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-        python-version: ['3.10']
         include:
-          # Special build for ChromeOS/Linux (Debian-based)
+          - os: windows-latest
+            artifact-name: SmartSpin2kFlasher-windows
+            build-cmd: flutter build windows --release
+            artifact-path: build/windows/x64/runner/Release/
+          - os: macos-latest
+            artifact-name: SmartSpin2kFlasher-macos
+            build-cmd: flutter build macos --release
+            artifact-path: build/macos/Build/Products/Release/
           - os: ubuntu-latest
-            python-version: '3.10'
-            target: chromeos
+            artifact-name: SmartSpin2kFlasher-linux
+            build-cmd: flutter build linux --release
+            artifact-path: build/linux/x64/release/bundle/
 
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+    - uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
       with:
-        python-version: ${{ matrix.python-version }}
-        
+        channel: stable
+
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev
-        
+        sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements_build.txt
-        pip install pyinstaller
-        pip install ifaddr==0.2.0
-        
-    - name: Build with PyInstaller (Windows)
+      run: flutter pub get
+
+    - name: Download esptool
+      run: dart run tool/download_esptool.dart
+
+    - name: Analyze
+      run: flutter analyze
+
+    - name: Build
+      run: ${{ matrix.build-cmd }}
+
+    - name: Package Windows Installer
       if: matrix.os == 'windows-latest'
       run: |
-        python -m PyInstaller --clean --onefile --windowed --icon=icon.ico --collect-data esptool --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
-        mv dist/SmartSpin2kFlasher.exe dist/SmartSpin2kFlasher-windows.exe
+        $env:APP_VERSION = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+        iscc /DAPP_VERSION="$env:APP_VERSION" windows\installer.iss
+        Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "SmartSpin2kFlasher-windows.zip"
 
-    - name: Build with PyInstaller (macOS)
+    - name: Package macOS DMG
       if: matrix.os == 'macos-latest'
       run: |
-        python -m PyInstaller --clean --onefile --windowed --icon=icon.icns --collect-data esptool --name=SmartSpin2kFlasher smartspin2kflasher/__main__.py
-        mv dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-macos.app
-        cd dist && zip -r SmartSpin2kFlasher-macos.zip SmartSpin2kFlasher-macos.app
+        brew install create-dmg
+        cp -r assets/esptool build/macos/Build/Products/Release/smartspin2k_flasher.app/Contents/Resources/esptool
+        create-dmg \
+          --volname "SmartSpin2k Flasher" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --icon "smartspin2k_flasher.app" 150 185 \
+          --app-drop-link 450 185 \
+          --no-internet-enable \
+          "SmartSpin2kFlasher-macos.dmg" \
+          "build/macos/Build/Products/Release/smartspin2k_flasher.app"
 
-    - name: Build with PyInstaller (ChromeOS/Linux)
-      if: matrix.target == 'chromeos'
+    - name: Package Linux
+      if: matrix.os == 'ubuntu-latest'
       run: |
-        python -m PyInstaller --clean --onefile \
-          --windowed \
-          --icon=icon.ico \
-          --name=SmartSpin2kFlasher \
-          --target-arch x86_64 \
-          --hidden-import='pkg_resources.py2_warn' \
-          --collect-data esptool \
-          smartspin2kflasher/__main__.py
-        # Create both ChromeOS and Linux versions from the same build
-        cp dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-chromeos.AppImage
-        cp dist/SmartSpin2kFlasher dist/SmartSpin2kFlasher-linux.AppImage
+        cd build/linux/x64/release/bundle/
+        tar czf ${{ github.workspace }}/SmartSpin2kFlasher-linux.tar.gz *
 
-    - name: Upload Windows artifacts
-      if: matrix.os == 'windows-latest'
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SmartSpin2kFlasher-windows
-        path: dist/SmartSpin2kFlasher-windows.exe
-
-    - name: Upload macOS artifacts
-      if: matrix.os == 'macos-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: SmartSpin2kFlasher-macos
-        path: dist/SmartSpin2kFlasher-macos.zip
-
-    - name: Upload ChromeOS/Linux artifacts
-      if: matrix.target == 'chromeos'
-      uses: actions/upload-artifact@v4
-      with:
-        name: SmartSpin2kFlasher-linux
-        path: |
-          dist/SmartSpin2kFlasher-chromeos.AppImage
-          dist/SmartSpin2kFlasher-linux.AppImage
+        name: ${{ matrix.artifact-name }}
+        path: SmartSpin2kFlasher-*.*
 
   release:
     needs: [build, tag-and-release]
