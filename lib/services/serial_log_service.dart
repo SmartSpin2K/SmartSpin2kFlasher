@@ -38,13 +38,35 @@ class SerialLogService {
       ]);
     } else {
       // On Linux/macOS, use stty + cat
-      // First configure the port
-      await Process.run('stty', ['-F', port, baudRate.toString()]);
+      // macOS uses -f while GNU/Linux uses -F. Configure raw mode so stty
+      // does not translate or echo bytes from the device.
+      final sttyResult = await Process.run('stty', [
+        Platform.isMacOS ? '-f' : '-F',
+        port,
+        baudRate.toString(),
+        'raw',
+        '-echo',
+      ]);
+      if (sttyResult.exitCode != 0) {
+        throw ProcessException(
+          'stty',
+          [port, baudRate.toString()],
+          sttyResult.stderr.toString().trim(),
+          sttyResult.exitCode,
+        );
+      }
       _process = await Process.start('cat', [port]);
     }
 
-    _stdoutSub = _process!.stdout.transform(utf8.decoder).listen(onData);
-    _stderrSub = _process!.stderr.transform(utf8.decoder).listen(onData);
+    final lineDecoder = const Utf8Decoder(
+      allowMalformed: true,
+    ).fuse(const LineSplitter());
+    _stdoutSub = _process!.stdout
+        .transform(lineDecoder)
+        .listen((line) => onData('$line\n'));
+    _stderrSub = _process!.stderr
+        .transform(lineDecoder)
+        .listen((line) => onData('$line\n'));
   }
 
   /// Stop reading logs.
