@@ -34,7 +34,7 @@ class SerialLogService {
         } finally {
           \$port.Close()
         }
-        '''
+        ''',
       ]);
     } else {
       // On Linux/macOS, use stty + cat
@@ -58,14 +58,13 @@ class SerialLogService {
       _process = await Process.start('cat', [port]);
     }
 
-    final lineDecoder = const Utf8Decoder(
-      allowMalformed: true,
-    ).fuse(const LineSplitter());
     _stdoutSub = _process!.stdout
-        .transform(lineDecoder)
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter())
         .listen((line) => onData('$line\n'));
     _stderrSub = _process!.stderr
-        .transform(lineDecoder)
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter())
         .listen((line) => onData('$line\n'));
   }
 
