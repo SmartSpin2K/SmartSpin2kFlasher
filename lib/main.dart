@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -145,8 +146,9 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _loadReleases() async {
     try {
-      final releases = await FirmwareService.listReleases();
+      final releases = await FirmwareService.listReleases(onLog: _log);
       final savedTag = PreferencesService.selectedReleaseTag;
+      if (!mounted) return;
       setState(() {
         _releases = releases;
         _loadingReleases = false;
@@ -157,22 +159,29 @@ class _MainScreenState extends State<MainScreen> {
         }
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loadingReleases = false;
       });
+      _log('Error loading GitHub releases: $e\n');
     }
   }
 
   Future<void> _browseFirmware() async {
-    final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Select Firmware Binary',
-      type: FileType.any,
-    );
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        _localFirmwarePath = result.files.single.path;
-      });
-      PreferencesService.setLocalFirmwarePath(_localFirmwarePath);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: 'Select Firmware Binary',
+        type: FileType.custom,
+        allowedExtensions: const ['bin'],
+      );
+      if (result != null && result.files.single.path != null) {
+        setState(() {
+          _localFirmwarePath = result.files.single.path;
+        });
+        PreferencesService.setLocalFirmwarePath(_localFirmwarePath);
+      }
+    } catch (e) {
+      _log('Error opening firmware file picker: $e\n');
     }
   }
 
@@ -414,6 +423,10 @@ class _MainScreenState extends State<MainScreen> {
                               : () {
                                   setState(() => _firmwareSource = 'github');
                                   PreferencesService.setFirmwareSource('github');
+                                  if (_releases.isEmpty && !_loadingReleases) {
+                                    setState(() => _loadingReleases = true);
+                                    unawaited(_loadReleases());
+                                  }
                                 },
                         ),
                         const SizedBox(width: 8),
@@ -426,6 +439,7 @@ class _MainScreenState extends State<MainScreen> {
                               : () {
                                   setState(() => _firmwareSource = 'local');
                                   PreferencesService.setFirmwareSource('local');
+                                  unawaited(_browseFirmware());
                                 },
                         ),
                       ],
