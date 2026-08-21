@@ -125,10 +125,12 @@ jobs:
         codesign --verify --strict --verbose=2 \
           "$app_path/Contents/Resources/esptool/esptool"
 
-        # Re-sign the final bundle after all of its resources are in place.
-        # This is an ad-hoc signature; a Developer ID signature and Apple
-        # notarization can replace it when release credentials are available.
-        codesign --force --deep --sign - \
+        # Re-sign only the outer app after all resources are in place. Do not
+        # use --deep here: esptool is already signed by Espressif, and replacing
+        # its signature breaks validation of its embedded Python.framework.
+        # A Developer ID signature and Apple notarization can replace this
+        # ad-hoc outer signature when release credentials are available.
+        codesign --force --sign - \
           --entitlements macos/Runner/Release.entitlements \
           "$app_path"
         codesign --verify --deep --strict --verbose=2 "$app_path"
