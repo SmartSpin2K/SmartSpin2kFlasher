@@ -1,5 +1,3 @@
-const String appVersion = '1.3.1';
-
 // Standard ESP32 OTA data (boot_app0.bin) from arduino-esp32
 const String esp32DefaultOtaData =
     'https://raw.githubusercontent.com/espressif/arduino-esp32/master/tools/partitions/boot_app0.bin';

@@ -15,6 +15,7 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     outputs:
       new_tag: ${{ steps.tag.outputs.new_tag }}
+      new_version: ${{ steps.tag.outputs.new_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +53,7 @@ jobs:
             fi
           fi
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+          echo "new_version=${new_tag#v}" >> $GITHUB_OUTPUT
           
       - name: Create and push new tag
         run: |
@@ -59,6 +61,8 @@ jobs:
           git push origin ${{ steps.tag.outputs.new_tag }}
 
   build:
+    needs: tag-and-release
+    if: always() && (needs.tag-and-release.result == 'success' || needs.tag-and-release.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -100,7 +104,12 @@ jobs:
       run: flutter analyze
 
     - name: Build
+      if: needs.tag-and-release.outputs.new_version == ''
       run: ${{ matrix.build-cmd }}
+
+    - name: Build release version
+      if: needs.tag-and-release.outputs.new_version != ''
+      run: ${{ matrix.build-cmd }} --build-name=${{ needs.tag-and-release.outputs.new_version }}
 
     - name: Package Windows Installer
       if: matrix.os == 'windows-latest'

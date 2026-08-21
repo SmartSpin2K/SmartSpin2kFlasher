@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
-import 'constants.dart';
 import 'models/models.dart';
 import 'services/services.dart';
 import 'theme.dart';
 import 'widgets/widgets.dart';
+
+late final String appVersion;
 
 /// On Windows, Dart's default SecurityContext may not include system root
 /// certificates, causing CERTIFICATE_VERIFY_FAILED errors. This override
@@ -29,6 +31,7 @@ class _SmartSpin2kHttpOverrides extends HttpOverrides {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = _SmartSpin2kHttpOverrides();
+  appVersion = (await PackageInfo.fromPlatform()).version;
   await PreferencesService.init();
   runApp(const SmartSpin2kFlasherApp());
 }
