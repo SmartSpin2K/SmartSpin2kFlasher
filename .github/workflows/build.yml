@@ -119,6 +119,12 @@ jobs:
         # code seal. Gatekeeper reports that as "damaged and can't be opened".
         cp -r assets/esptool "$app_path/Contents/Resources/esptool"
 
+        # Catch broken upstream macOS bundles before publishing them. The
+        # standalone esptool embeds a Python.framework that Gatekeeper checks
+        # when esptool extracts it at runtime.
+        codesign --verify --strict --verbose=2 \
+          "$app_path/Contents/Resources/esptool/esptool"
+
         # Re-sign the final bundle after all of its resources are in place.
         # This is an ad-hoc signature; a Developer ID signature and Apple
         # notarization can replace it when release credentials are available.

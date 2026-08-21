@@ -17,18 +17,24 @@ import 'package:http/http.dart' as http;
 const _repo = 'espressif/esptool';
 const _outputDir = 'assets/esptool';
 
+// v5.3.1's macOS PyInstaller bundle contains a Python.framework that fails
+// Gatekeeper validation when extracted at runtime. Espressif re-uploaded the
+// v5.3.0 macOS bundle after correcting its notarization.
+const _macosVersion = 'v5.3.0';
+
 Future<void> main(List<String> args) async {
   final platform = args.isNotEmpty ? args[0] : _detectPlatform();
   print('Downloading latest esptool for $platform...');
 
-  final release = await _getLatestRelease();
+  final release = await _getRelease(platform);
   final version = release['tag_name'] as String;
   print('Latest release: $version');
 
   final assetName = _getAssetName(version, platform);
   final asset = (release['assets'] as List).firstWhere(
     (a) => a['name'] == assetName,
-    orElse: () => throw Exception('Asset $assetName not found in release $version'),
+    orElse: () =>
+        throw Exception('Asset $assetName not found in release $version'),
   );
 
   final downloadUrl = asset['browser_download_url'] as String;
@@ -38,7 +44,9 @@ Future<void> main(List<String> args) async {
   if (response.statusCode != 200) {
     throw Exception('Failed to download: HTTP ${response.statusCode}');
   }
-  print('Downloaded ${(response.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)} MB');
+  print(
+    'Downloaded ${(response.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)} MB',
+  );
 
   // Clean output directory
   final outputDir = Directory(_outputDir);
@@ -77,9 +85,12 @@ String _detectPlatform() {
   throw Exception('Unsupported platform');
 }
 
-Future<Map<String, dynamic>> _getLatestRelease() async {
+Future<Map<String, dynamic>> _getRelease(String platform) async {
+  final endpoint = platform == 'macos'
+      ? 'releases/tags/$_macosVersion'
+      : 'releases/latest';
   final response = await http.get(
-    Uri.parse('https://api.github.com/repos/$_repo/releases/latest'),
+    Uri.parse('https://api.github.com/repos/$_repo/$endpoint'),
     headers: {'Accept': 'application/vnd.github.v3+json'},
   );
   if (response.statusCode != 200) {
@@ -107,9 +118,25 @@ void _extractZip(List<int> bytes, String outputDir) {
 }
 
 void _extractTarGz(List<int> bytes, String outputDir) {
-  final decompressed = GZipDecoder().decodeBytes(bytes);
-  final archive = TarDecoder().decodeBytes(decompressed);
-  _extractArchive(archive, outputDir);
+  final tempDir = Directory.systemTemp.createTempSync('esptool_extract_');
+  final archiveFile = File('${tempDir.path}/esptool.tar.gz');
+
+  try {
+    archiveFile.writeAsBytesSync(bytes);
+    final result = Process.runSync('tar', [
+      '-xzf',
+      archiveFile.path,
+      '--strip-components',
+      '1',
+      '-C',
+      outputDir,
+    ]);
+    if (result.exitCode != 0) {
+      throw Exception('Failed to extract esptool: ${result.stderr}');
+    }
+  } finally {
+    tempDir.deleteSync(recursive: true);
+  }
 }
 
 /// Extracts archive files, flattening the top-level directory so binaries
@@ -119,7 +146,9 @@ void _extractArchive(Archive archive, String outputDir) {
     if (file.isFile) {
       // Strip the top-level directory (e.g., "esptool-v5.2.0-win64/")
       final parts = file.name.split('/');
-      final flatName = parts.length > 1 ? parts.sublist(1).join('/') : file.name;
+      final flatName = parts.length > 1
+          ? parts.sublist(1).join('/')
+          : file.name;
       if (flatName.isEmpty) continue;
 
       final outFile = File('$outputDir/$flatName');
