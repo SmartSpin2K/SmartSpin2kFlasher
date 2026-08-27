@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
@@ -13,8 +15,17 @@ class ConsoleOutput extends StatefulWidget {
 }
 
 class ConsoleOutputState extends State<ConsoleOutput> {
+  static const _maxCharacters = 250000;
+  static const _maxSpans = 2000;
+  static const _maxPendingCharacters = 50000;
+  static const _maxPendingSpans = 500;
+
   final List<ConsoleSpan> _spans = [];
+  final List<ConsoleSpan> _pendingSpans = [];
   late final ScrollController _scrollController;
+  Timer? _flushTimer;
+  int _characterCount = 0;
+  int _pendingCharacterCount = 0;
 
   @override
   void initState() {
@@ -24,6 +35,7 @@ class ConsoleOutputState extends State<ConsoleOutput> {
 
   @override
   void dispose() {
+    _flushTimer?.cancel();
     if (widget.scrollController == null) {
       _scrollController.dispose();
     }
@@ -31,18 +43,105 @@ class ConsoleOutputState extends State<ConsoleOutput> {
   }
 
   void clear() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
     setState(() {
       _spans.clear();
+      _pendingSpans.clear();
+      _characterCount = 0;
+      _pendingCharacterCount = 0;
     });
   }
 
   void appendText(String text, {Color? color}) {
+    final stripped = _stripAnsi(text);
+    if (stripped.isEmpty) return;
+
+    // Log sources can be very chatty. Batch visual updates while keeping a
+    // deliberately bounded recent history; full history belongs in a file.
+    _addToBuffer(
+      _pendingSpans,
+      stripped,
+      color,
+      maxCharacters: _maxPendingCharacters,
+      maxSpans: _maxPendingSpans,
+      isPending: true,
+    );
+    _flushTimer ??= Timer(const Duration(milliseconds: 75), _flushPending);
+  }
+
+  void _flushPending() {
+    _flushTimer = null;
+    if (!mounted || _pendingSpans.isEmpty) return;
+
     setState(() {
-      // Parse ANSI codes for basic color support
-      final stripped = _stripAnsi(text);
-      _spans.add(ConsoleSpan(text: stripped, color: color));
+      for (final span in _pendingSpans) {
+        _addToBuffer(
+          _spans,
+          span.text,
+          span.color,
+          maxCharacters: _maxCharacters,
+          maxSpans: _maxSpans,
+          isPending: false,
+        );
+      }
+      _pendingSpans.clear();
+      _pendingCharacterCount = 0;
     });
     _scrollToBottom();
+  }
+
+  void _addToBuffer(
+    List<ConsoleSpan> buffer,
+    String text,
+    Color? color, {
+    required int maxCharacters,
+    required int maxSpans,
+    required bool isPending,
+  }) {
+    var value = text;
+    if (value.length > maxCharacters) {
+      value = value.substring(value.length - maxCharacters);
+    }
+
+    if (buffer.isNotEmpty && buffer.last.color == color) {
+      buffer.last.text += value;
+    } else {
+      buffer.add(ConsoleSpan(text: value, color: color));
+    }
+
+    if (isPending) {
+      _pendingCharacterCount += value.length;
+    } else {
+      _characterCount += value.length;
+    }
+    _trimBuffer(buffer, maxCharacters, maxSpans, isPending: isPending);
+  }
+
+  void _trimBuffer(
+    List<ConsoleSpan> buffer,
+    int maxCharacters,
+    int maxSpans, {
+    required bool isPending,
+  }) {
+    var characterCount = isPending ? _pendingCharacterCount : _characterCount;
+    while (buffer.isNotEmpty &&
+        (characterCount > maxCharacters || buffer.length > maxSpans)) {
+      final first = buffer.first;
+      final excess = characterCount - maxCharacters;
+      if (excess <= 0 || first.text.length <= excess) {
+        characterCount -= first.text.length;
+        buffer.removeAt(0);
+      } else {
+        first.text = first.text.substring(excess);
+        characterCount -= excess;
+      }
+    }
+    if (isPending) {
+      _pendingCharacterCount = characterCount;
+    } else {
+      _characterCount = characterCount;
+    }
   }
 
   String _stripAnsi(String text) {
@@ -83,8 +182,7 @@ class ConsoleOutputState extends State<ConsoleOutput> {
                     (span) => TextSpan(
                       text: span.text,
                       style: TextStyle(
-                        color: span.color ??
-                            SS2KColors.consoleText(brightness),
+                        color: span.color ?? SS2KColors.consoleText(brightness),
                         fontFamily: 'Consolas, monospace',
                         fontSize: 13,
                       ),
@@ -100,7 +198,7 @@ class ConsoleOutputState extends State<ConsoleOutput> {
 }
 
 class ConsoleSpan {
-  final String text;
+  String text;
   final Color? color;
 
   ConsoleSpan({required this.text, this.color});

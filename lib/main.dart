@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
 
 import 'models/models.dart';
 import 'services/services.dart';
@@ -21,9 +22,9 @@ class _SmartSpin2kHttpOverrides extends HttpOverrides {
     final client = super.createHttpClient(context);
     client.badCertificateCallback =
         (X509Certificate cert, String host, int port) {
-      return host.endsWith('github.com') ||
-          host.endsWith('githubusercontent.com');
-    };
+          return host.endsWith('github.com') ||
+              host.endsWith('githubusercontent.com');
+        };
     return client;
   }
 }
@@ -59,15 +60,17 @@ class _SmartSpin2kFlasherAppState extends State<SmartSpin2kFlasherApp>
   @override
   void initState() {
     super.initState();
-    _themeMode =
-        PreferencesService.themeMode == 'light' ? ThemeMode.light : ThemeMode.dark;
+    _themeMode = PreferencesService.themeMode == 'light'
+        ? ThemeMode.light
+        : ThemeMode.dark;
   }
 
   @override
   void toggleTheme() {
     setState(() {
-      _themeMode =
-          _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _themeMode = _themeMode == ThemeMode.dark
+          ? ThemeMode.light
+          : ThemeMode.dark;
       PreferencesService.setThemeMode(
         _themeMode == ThemeMode.dark ? 'dark' : 'light',
       );
@@ -100,6 +103,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final GlobalKey<ConsoleOutputState> _consoleKey = GlobalKey();
   final SerialLogService _serialLogService = SerialLogService();
+  final LogFileWriter _serialLogFileWriter = LogFileWriter();
 
   List<SerialPortInfo> _ports = [];
   String? _selectedPort;
@@ -126,6 +130,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void dispose() {
     _serialLogService.stopLogs();
+    _serialLogFileWriter.close();
     super.dispose();
   }
 
@@ -173,7 +178,7 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _browseFirmware() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        dialogTitle: 'Select Firmware Binary',
+        dialogTitle: 'Select Factory Firmware Binary',
         type: FileType.custom,
         allowedExtensions: const ['bin'],
       );
@@ -200,32 +205,60 @@ class _MainScreenState extends State<MainScreen> {
 
     // Stop serial logger if it's using the port
     if (_isShowingLogs) {
-      await _serialLogService.stopLogs();
-      setState(() => _isShowingLogs = false);
+      await _stopLogs(showMessage: false);
       _log('Stopped log viewer to free serial port.\n');
     }
 
-    String firmwarePath;
-    String? releaseTag;
+    SmartSpin2kChip chip;
+    String factoryFirmwarePath;
+    String? littlefsPath;
+    int? littlefsAddress;
+
+    setState(() => _isFlashing = true);
+    _consoleKey.currentState?.clear();
+    try {
+      _log('Detecting connected board...\n');
+      chip = await EsptoolService.detectChip(
+        port: _selectedPort!,
+        onOutput: _log,
+      );
+      _log('Detected ${chip.displayName}.\n');
+    } catch (e) {
+      _log('\nError: $e\n');
+      setState(() => _isFlashing = false);
+      return;
+    }
 
     if (_firmwareSource == 'github') {
       if (_selectedRelease == null) {
         _log('Error: No release selected\n');
+        setState(() => _isFlashing = false);
         return;
       }
-      releaseTag = _selectedRelease!.tag;
-      // Download firmware.bin from the selected release
-      setState(() => _isFlashing = true);
-      _consoleKey.currentState?.clear();
+      final imageSet = FirmwareService.factoryImageSetFor(chip);
       try {
-        _log('Downloading firmware from release ${_selectedRelease!.tag}...\n');
-        final firmwareData = await FirmwareService.extractFileFromReleaseTag(
-          releaseTag,
-          'firmware.bin',
+        _log(
+          'Downloading ${chip.displayName} factory firmware from release ${_selectedRelease!.tag}...\n',
+        );
+        final factoryData = await FirmwareService.extractFileFromReleaseTag(
+          _selectedRelease!.tag,
+          imageSet.factoryFilename,
           onLog: _log,
         );
-        firmwarePath =
-            await FirmwareService.saveTempFile(firmwareData, 'firmware.bin');
+        factoryFirmwarePath = await FirmwareService.saveTempFile(
+          factoryData,
+          imageSet.factoryFilename,
+        );
+        final littlefsData = await FirmwareService.extractFileFromReleaseTag(
+          _selectedRelease!.tag,
+          imageSet.littlefsFilename,
+          onLog: _log,
+        );
+        littlefsPath = await FirmwareService.saveTempFile(
+          littlefsData,
+          imageSet.littlefsFilename,
+        );
+        littlefsAddress = imageSet.littlefsAddress;
       } catch (e) {
         _log('\nError: $e\n');
         setState(() => _isFlashing = false);
@@ -234,22 +267,32 @@ class _MainScreenState extends State<MainScreen> {
     } else {
       if (_localFirmwarePath == null || _localFirmwarePath!.isEmpty) {
         _log('Error: No firmware file selected\n');
+        setState(() => _isFlashing = false);
         return;
       }
       if (!File(_localFirmwarePath!).existsSync()) {
         _log('Error: Firmware file not found: $_localFirmwarePath\n');
+        setState(() => _isFlashing = false);
         return;
       }
-      firmwarePath = _localFirmwarePath!;
-      setState(() => _isFlashing = true);
-      _consoleKey.currentState?.clear();
+      if (!p.basename(_localFirmwarePath!).toLowerCase().contains('factory')) {
+        _log(
+          'Error: Local flashing requires a factory firmware file '
+          '(for example, firmware.factory.bin).\n',
+        );
+        setState(() => _isFlashing = false);
+        return;
+      }
+      factoryFirmwarePath = _localFirmwarePath!;
     }
 
     try {
       await EsptoolService.flashDevice(
         port: _selectedPort!,
-        firmwarePath: firmwarePath,
-        releaseTag: releaseTag,
+        chip: chip,
+        factoryFirmwarePath: factoryFirmwarePath,
+        littlefsPath: littlefsPath,
+        littlefsAddress: littlefsAddress,
         onOutput: _log,
       );
 
@@ -263,7 +306,7 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _startLogs() async {
+  Future<void> _startLogs({String? logFilePath}) async {
     if (_selectedPort == null) {
       _log('Error: No serial port selected\n');
       return;
@@ -273,30 +316,45 @@ class _MainScreenState extends State<MainScreen> {
     setState(() => _isShowingLogs = true);
 
     try {
+      if (logFilePath != null) {
+        await _serialLogFileWriter.open(logFilePath);
+        _log('Writing serial logs to: $logFilePath\n');
+      }
       await _serialLogService.startLogs(
         port: _selectedPort!,
         onData: (data) {
           final timestamp = DateTime.now().toString().substring(11, 19);
-          _log('[$timestamp] $data');
+          final entry = '[$timestamp] $data';
+          _serialLogFileWriter.write(entry);
+          _log(entry);
         },
       );
     } catch (e) {
+      await _serialLogFileWriter.close();
       _log('Error starting logs: $e\n');
       setState(() => _isShowingLogs = false);
     }
   }
 
-  void _stopLogs() async {
+  Future<void> _stopLogs({bool showMessage = true}) async {
     await _serialLogService.stopLogs();
+    await _serialLogFileWriter.close();
     setState(() => _isShowingLogs = false);
-    _log('\nLog viewing stopped.\n');
+    if (showMessage) _log('\nLog viewing stopped.\n');
+  }
+
+  Future<void> _recordSerialLogs() async {
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Serial Logs',
+      fileName: 'smartspin2k-serial.log',
+      type: FileType.custom,
+      allowedExtensions: const ['log', 'txt'],
+    );
+    if (path != null) await _startLogs(logFilePath: path);
   }
 
   void _showUdpLogger() {
-    showDialog(
-      context: context,
-      builder: (context) => const UdpLoggerDialog(),
-    );
+    showDialog(context: context, builder: (context) => const UdpLoggerDialog());
   }
 
   @override
@@ -330,8 +388,10 @@ class _MainScreenState extends State<MainScreen> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black26,
                   borderRadius: BorderRadius.circular(12),
@@ -368,8 +428,9 @@ class _MainScreenState extends State<MainScreen> {
                             decoration: BoxDecoration(
                               color: SS2KColors.bg(brightness),
                               borderRadius: BorderRadius.circular(8),
-                              border:
-                                  Border.all(color: SS2KColors.border(brightness)),
+                              border: Border.all(
+                                color: SS2KColors.border(brightness),
+                              ),
                             ),
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<String>(
@@ -394,7 +455,9 @@ class _MainScreenState extends State<MainScreen> {
                                     ? null
                                     : (value) {
                                         setState(() => _selectedPort = value);
-                                        PreferencesService.setSelectedPort(value);
+                                        PreferencesService.setSelectedPort(
+                                          value,
+                                        );
                                       },
                               ),
                             ),
@@ -425,7 +488,9 @@ class _MainScreenState extends State<MainScreen> {
                               ? null
                               : () {
                                   setState(() => _firmwareSource = 'github');
-                                  PreferencesService.setFirmwareSource('github');
+                                  PreferencesService.setFirmwareSource(
+                                    'github',
+                                  );
                                   if (_releases.isEmpty && !_loadingReleases) {
                                     setState(() => _loadingReleases = true);
                                     unawaited(_loadReleases());
@@ -455,8 +520,9 @@ class _MainScreenState extends State<MainScreen> {
                         children: [
                           Expanded(
                             child: Container(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
                               decoration: BoxDecoration(
                                 color: SS2KColors.bg(brightness),
                                 borderRadius: BorderRadius.circular(8),
@@ -466,8 +532,9 @@ class _MainScreenState extends State<MainScreen> {
                               ),
                               child: _loadingReleases
                                   ? const Padding(
-                                      padding:
-                                          EdgeInsets.symmetric(vertical: 14),
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
                                       child: SizedBox(
                                         height: 18,
                                         child: Center(
@@ -476,17 +543,16 @@ class _MainScreenState extends State<MainScreen> {
                                       ),
                                     )
                                   : DropdownButtonHideUnderline(
-                                      child:
-                                          DropdownButton<FirmwareRelease>(
+                                      child: DropdownButton<FirmwareRelease>(
                                         isExpanded: true,
                                         value: _selectedRelease,
                                         hint: const Text(
                                           'No releases found',
-                                          style:
-                                              TextStyle(color: Colors.grey),
+                                          style: TextStyle(color: Colors.grey),
                                         ),
-                                        dropdownColor:
-                                            SS2KColors.surface(brightness),
+                                        dropdownColor: SS2KColors.surface(
+                                          brightness,
+                                        ),
                                         items: _releases
                                             .map(
                                               (r) => DropdownMenuItem(
@@ -503,11 +569,12 @@ class _MainScreenState extends State<MainScreen> {
                                             ? null
                                             : (value) {
                                                 setState(
-                                                    () => _selectedRelease =
-                                                        value);
-                                                PreferencesService
-                                                    .setSelectedReleaseTag(
-                                                        value?.tag);
+                                                  () =>
+                                                      _selectedRelease = value,
+                                                );
+                                                PreferencesService.setSelectedReleaseTag(
+                                                  value?.tag,
+                                                );
                                               },
                                       ),
                                     ),
@@ -546,9 +613,7 @@ class _MainScreenState extends State<MainScreen> {
                                 _localFirmwarePath ?? 'No file selected',
                                 style: TextStyle(
                                   color: _localFirmwarePath != null
-                                      ? Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
+                                      ? Theme.of(context).colorScheme.onSurface
                                       : SS2KColors.textMuted(brightness),
                                 ),
                                 overflow: TextOverflow.ellipsis,
@@ -557,8 +622,7 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                           const SizedBox(width: 8),
                           OutlinedButton(
-                            onPressed:
-                                _isFlashing ? null : _browseFirmware,
+                            onPressed: _isFlashing ? null : _browseFirmware,
                             child: const Text('Browse'),
                           ),
                         ],
@@ -595,8 +659,9 @@ class _MainScreenState extends State<MainScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: SS2KColors.red,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor:
-                      SS2KColors.red.withValues(alpha: 0.4),
+                  disabledBackgroundColor: SS2KColors.red.withValues(
+                    alpha: 0.4,
+                  ),
                   disabledForegroundColor: Colors.white54,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -618,9 +683,17 @@ class _MainScreenState extends State<MainScreen> {
                       _isShowingLogs ? Icons.stop : Icons.terminal,
                       size: 18,
                     ),
-                    label: Text(
-                      _isShowingLogs ? 'Stop Logs' : 'View Logs',
-                    ),
+                    label: Text(_isShowingLogs ? 'Stop Logs' : 'View Logs'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isFlashing || _isShowingLogs
+                        ? null
+                        : _recordSerialLogs,
+                    icon: const Icon(Icons.save_alt, size: 18),
+                    label: const Text('Save Serial Logs'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -638,9 +711,7 @@ class _MainScreenState extends State<MainScreen> {
             // Console header
             _sectionLabel('CONSOLE', icon: Icons.terminal),
             const SizedBox(height: 6),
-            Expanded(
-              child: ConsoleOutput(key: _consoleKey),
-            ),
+            Expanded(child: ConsoleOutput(key: _consoleKey)),
           ],
         ),
       ),

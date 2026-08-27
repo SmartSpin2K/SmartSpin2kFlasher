@@ -1,19 +1,26 @@
+/// ESP targets supported by SmartSpin2k release artifacts.
+enum SmartSpin2kChip {
+  esp32('ESP32', 'esp32'),
+  esp32s3('ESP32-S3', 'esp32s3');
+
+  const SmartSpin2kChip(this.displayName, this.esptoolName);
+
+  final String displayName;
+  final String esptoolName;
+}
+
 class ChipInfo {
   final String family;
   final String model;
   final String mac;
 
-  ChipInfo({
-    required this.family,
-    required this.model,
-    required this.mac,
-  });
+  ChipInfo({required this.family, required this.model, required this.mac});
 
   Map<String, dynamic> toMap() => {
-        'family': family,
-        'model': model,
-        'mac': mac,
-      };
+    'family': family,
+    'model': model,
+    'mac': mac,
+  };
 }
 
 class ESP32ChipInfo extends ChipInfo {
@@ -35,13 +42,13 @@ class ESP32ChipInfo extends ChipInfo {
 
   @override
   Map<String, dynamic> toMap() => {
-        ...super.toMap(),
-        'num_cores': numCores,
-        'cpu_frequency': cpuFrequency,
-        'has_bluetooth': hasBluetooth,
-        'has_embedded_flash': hasEmbeddedFlash,
-        'has_factory_calibrated_adc': hasFactoryCalibratedAdc,
-      };
+    ...super.toMap(),
+    'num_cores': numCores,
+    'cpu_frequency': cpuFrequency,
+    'has_bluetooth': hasBluetooth,
+    'has_embedded_flash': hasEmbeddedFlash,
+    'has_factory_calibrated_adc': hasFactoryCalibratedAdc,
+  };
 }
 
 class FlashConfig {
@@ -49,11 +56,7 @@ class FlashConfig {
   final String? firmwarePath;
   final int baudRate;
 
-  FlashConfig({
-    required this.port,
-    this.firmwarePath,
-    this.baudRate = 921600,
-  });
+  FlashConfig({required this.port, this.firmwarePath, this.baudRate = 921600});
 }
 
 class SerialPortInfo {

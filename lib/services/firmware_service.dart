@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/chip_info.dart';
+
 /// Represents a SmartSpin2k firmware release from GitHub.
 class FirmwareRelease {
   final String tag;
@@ -20,9 +22,40 @@ class FirmwareRelease {
   String get displayName => '$name ($tag)';
 }
 
+/// Firmware files and LittleFS location for one SmartSpin2k board family.
+class FirmwareImageSet {
+  const FirmwareImageSet({
+    required this.factoryFilename,
+    required this.littlefsFilename,
+    required this.littlefsAddress,
+  });
+
+  final String factoryFilename;
+  final String littlefsFilename;
+  final int littlefsAddress;
+}
+
 class FirmwareService {
   // Cache for release zip data, keyed by tag
   static final Map<String, Uint8List> _zipCache = {};
+
+  /// Return the release artifacts appropriate for the detected ESP target.
+  static FirmwareImageSet factoryImageSetFor(SmartSpin2kChip chip) {
+    switch (chip) {
+      case SmartSpin2kChip.esp32:
+        return const FirmwareImageSet(
+          factoryFilename: 'firmware.factory.bin',
+          littlefsFilename: 'littlefs.bin',
+          littlefsAddress: 0x3D0000,
+        );
+      case SmartSpin2kChip.esp32s3:
+        return const FirmwareImageSet(
+          factoryFilename: 'S3firmware.factory.bin',
+          littlefsFilename: 'S3littlefs.bin',
+          littlefsAddress: 0x860000,
+        );
+    }
+  }
 
   /// Fetch available releases from GitHub.
   static Future<List<FirmwareRelease>> listReleases({
@@ -36,9 +69,7 @@ class FirmwareService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to fetch releases: HTTP ${response.statusCode}',
-      );
+      throw Exception('Failed to fetch releases: HTTP ${response.statusCode}');
     }
 
     final List<dynamic> data = jsonDecode(response.body);
@@ -54,11 +85,9 @@ class FirmwareService {
         (a) => (a['name'] as String? ?? '').endsWith('.zip'),
       );
       if (hasZip) {
-        releases.add(FirmwareRelease(
-          tag: tag,
-          name: name,
-          publishedAt: publishedAt,
-        ));
+        releases.add(
+          FirmwareRelease(tag: tag, name: name, publishedAt: publishedAt),
+        );
       }
     }
 
@@ -200,10 +229,7 @@ class FirmwareService {
   }
 
   /// Save bytes to a temporary file and return its path.
-  static Future<String> saveTempFile(
-    Uint8List data,
-    String filename,
-  ) async {
+  static Future<String> saveTempFile(Uint8List data, String filename) async {
     final tempDir = await Directory.systemTemp.createTemp('ss2k_');
     final file = File('${tempDir.path}${Platform.pathSeparator}$filename');
     await file.writeAsBytes(data);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../services/services.dart';
 import 'console_output.dart';
@@ -13,6 +14,7 @@ class UdpLoggerDialog extends StatefulWidget {
 
 class _UdpLoggerDialogState extends State<UdpLoggerDialog> {
   final UdpLogService _udpService = UdpLogService();
+  final LogFileWriter _logFileWriter = LogFileWriter();
   final GlobalKey<ConsoleOutputState> _consoleKey = GlobalKey();
 
   List<NetworkInterfaceInfo> _interfaces = [];
@@ -28,6 +30,7 @@ class _UdpLoggerDialogState extends State<UdpLoggerDialog> {
   @override
   void dispose() {
     _udpService.stopListening();
+    _logFileWriter.close();
     super.dispose();
   }
 
@@ -53,6 +56,7 @@ class _UdpLoggerDialogState extends State<UdpLoggerDialog> {
       await _udpService.startListening(
         address: iface.address,
         onData: (data) {
+          _logFileWriter.write(data);
           _consoleKey.currentState?.appendText(data);
         },
       );
@@ -61,10 +65,42 @@ class _UdpLoggerDialogState extends State<UdpLoggerDialog> {
         color: Colors.green,
       );
     } catch (e) {
+      _consoleKey.currentState?.appendText('Error: $e\n', color: Colors.red);
+    }
+  }
+
+  Future<void> _toggleFileRecording() async {
+    if (_logFileWriter.isOpen) {
+      await _logFileWriter.close();
+      if (!mounted) return;
       _consoleKey.currentState?.appendText(
-        'Error: $e\n',
-        color: Colors.red,
+        'UDP file recording stopped.\n',
+        color: Colors.orange,
       );
+      setState(() {});
+      return;
+    }
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save UDP Logs',
+      fileName: 'smartspin2k-udp.log',
+      type: FileType.custom,
+      allowedExtensions: const ['log', 'txt'],
+    );
+    if (path == null) return;
+
+    try {
+      await _logFileWriter.open(path);
+      if (!mounted) return;
+      _consoleKey.currentState?.appendText(
+        'Writing UDP logs to: $path\n',
+        color: Colors.green,
+      );
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        _consoleKey.currentState?.appendText('Error saving logs: $e\n');
+      }
     }
   }
 
@@ -123,9 +159,23 @@ class _UdpLoggerDialogState extends State<UdpLoggerDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              Expanded(
-                child: ConsoleOutput(key: _consoleKey),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _toggleFileRecording,
+                  icon: Icon(
+                    _logFileWriter.isOpen ? Icons.stop : Icons.save_alt,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _logFileWriter.isOpen
+                        ? 'Stop Saving to File'
+                        : 'Save UDP Logs to File',
+                  ),
+                ),
               ),
+              const SizedBox(height: 12),
+              Expanded(child: ConsoleOutput(key: _consoleKey)),
             ],
           ),
         ),

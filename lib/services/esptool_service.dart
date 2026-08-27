@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
-import '../constants.dart';
-import 'firmware_service.dart';
+import '../models/chip_info.dart';
 
 /// Service that manages calling esptool as a subprocess for ESP32 flashing.
 class EsptoolService {
@@ -30,20 +28,25 @@ class EsptoolService {
       }
     }
 
-    // Fallback: find esptool in PATH
+    // Fallback: find esptool in PATH. A `pip3 install esptool` on macOS
+    // commonly installs only the Python module in a user site-packages
+    // directory; its console-script directory is not inherited by app debug
+    // sessions. The explicit system-Python path also works when an IDE starts
+    // the debug process with a minimal PATH.
     final candidates = [
       'esptool',
       'esptool.py',
       if (Platform.isWindows) 'esptool.exe',
+      if (Platform.isMacOS) '/usr/bin/python3 -m esptool',
+      if (!Platform.isWindows) 'python3 -m esptool',
+      if (!Platform.isWindows) 'python -m esptool',
     ];
 
     for (final candidate in candidates) {
       try {
-        final result = await Process.run(
-          candidate,
-          ['version'],
-          runInShell: true,
-        );
+        final result = await Process.run(candidate, [
+          'version',
+        ], runInShell: true);
         if (result.exitCode == 0) {
           return candidate;
         }
@@ -69,129 +72,119 @@ class EsptoolService {
 
     onOutput('Running: $esptool ${args.join(' ')}\n');
 
-    final process = await Process.start(
-      executable,
-      [...baseArgs, ...args],
-    );
+    final process = await Process.start(executable, [...baseArgs, ...args]);
 
     final stdoutCompleter = Completer<void>();
     final stderrCompleter = Completer<void>();
 
-    process.stdout.transform(utf8.decoder).listen(
-      (data) => onOutput(data),
-      onDone: () => stdoutCompleter.complete(),
-    );
-    process.stderr.transform(utf8.decoder).listen(
-      (data) => onOutput(data),
-      onDone: () => stderrCompleter.complete(),
-    );
+    process.stdout
+        .transform(utf8.decoder)
+        .listen(
+          (data) => onOutput(data),
+          onDone: () => stdoutCompleter.complete(),
+        );
+    process.stderr
+        .transform(utf8.decoder)
+        .listen(
+          (data) => onOutput(data),
+          onDone: () => stderrCompleter.complete(),
+        );
 
     await Future.wait([stdoutCompleter.future, stderrCompleter.future]);
     return await process.exitCode;
   }
 
-  /// Flash firmware to ESP32 device.
+  /// Detect the ESP target connected to [port].
+  static Future<SmartSpin2kChip> detectChip({
+    required String port,
+    required void Function(String) onOutput,
+  }) async {
+    final output = StringBuffer();
+    final exitCode = await runEsptool(
+      args: ['--port', port, 'chip-id'],
+      onOutput: (data) {
+        output.write(data);
+        onOutput(data);
+      },
+    );
+
+    final chipOutput = output.toString();
+    if (exitCode != 0) {
+      throw Exception(
+        'Unable to detect chip type (esptool exited with code $exitCode)',
+      );
+    }
+    if (RegExp(r'ESP32-S3', caseSensitive: false).hasMatch(chipOutput)) {
+      return SmartSpin2kChip.esp32s3;
+    }
+    // Check S3 before ESP32 because the S3 output contains both strings.
+    if (RegExp(r'ESP32(?!-)', caseSensitive: false).hasMatch(chipOutput)) {
+      return SmartSpin2kChip.esp32;
+    }
+    throw Exception(
+      'Unsupported chip. SmartSpin2k supports ESP32 and ESP32-S3 boards.',
+    );
+  }
+
+  /// Flash a complete SmartSpin2k installation in one esptool invocation.
+  ///
+  /// Factory images include the bootloader, partitions and application. The
+  /// release keeps LittleFS separate, so it is written alongside the factory
+  /// image to produce a complete clean install.
   static Future<void> flashDevice({
     required String port,
-    required String firmwarePath,
+    required SmartSpin2kChip chip,
+    required String factoryFirmwarePath,
+    String? littlefsPath,
+    int? littlefsAddress,
     required void Function(String) onOutput,
-    String? releaseTag,
     int baudRate = 921600,
-    bool eraseFlash = true,
   }) async {
     final esptool = await findEsptool();
+    onOutput('Preparing complete ${chip.displayName} installation...\n');
 
-    onOutput('Preparing firmware files...\n');
-
-    // Download OTA data (boot_app0.bin)
-    final otaData = await FirmwareService.downloadBinary(
-      esp32DefaultOtaData,
-      onLog: onOutput,
-    );
-    final otaDataPath = await FirmwareService.saveTempFile(otaData, 'boot_app0.bin');
-
-    // Extract supporting files from the specified release or latest
-    Future<Uint8List> extractFile(String filename) {
-      if (releaseTag != null) {
-        return FirmwareService.extractFileFromReleaseTag(
-          releaseTag,
-          filename,
-          onLog: onOutput,
-        );
-      }
-      return FirmwareService.extractFileFromRelease(
-        filename,
-        onLog: onOutput,
-      );
+    final factoryFile = File(factoryFirmwarePath);
+    if (!await factoryFile.exists()) {
+      throw Exception('Factory firmware file not found: $factoryFirmwarePath');
     }
 
-    final bootloader = await extractFile('bootloader.bin');
-    final bootloaderPath = await FirmwareService.saveTempFile(bootloader, 'bootloader.bin');
-
-    final partitions = await extractFile('partitions.bin');
-    final partitionsPath = await FirmwareService.saveTempFile(partitions, 'partitions.bin');
-
-    final filesystem = await extractFile('littlefs.bin');
-    final filesystemPath = await FirmwareService.saveTempFile(filesystem, 'littlefs.bin');
-
-    // Read firmware header to determine flash mode and frequency
-    final firmwareFile = File(firmwarePath);
-    final header = await firmwareFile.openRead(0, 4).fold<List<int>>(
-      [],
-      (prev, chunk) => [...prev, ...chunk],
-    );
-
-    if (header.length < 4 || header[0] != 0xE9) {
-      throw Exception(
-        'Invalid firmware binary (magic byte=0x${header[0].toRadixString(16)}, expected 0xE9)',
-      );
-    }
-
-    final flashModeRaw = header[2];
-    final flashSizeFreq = header[3];
-    final flashFreqRaw = flashSizeFreq & 0x0F;
-
-    final flashMode = {0: 'qio', 1: 'qout', 2: 'dio', 3: 'dout'}[flashModeRaw] ?? 'dio';
-    final flashFreq = {0: '40m', 1: '26m', 2: '20m', 0x0F: '80m'}[flashFreqRaw] ?? '40m';
-
-    onOutput('\nFlash Mode: $flashMode\n');
-    onOutput('Flash Frequency: ${flashFreq.toUpperCase()}Hz\n');
-
-    // Build esptool command (use hyphenated flags for esptool v5+)
+    // Keep the flash settings embedded in the factory bootloader intact.
     final args = [
-      '--chip', 'esp32',
-      '--port', port,
-      '--baud', baudRate.toString(),
-      '--before', 'default-reset',
-      '--after', 'hard-reset',
+      '--chip',
+      chip.esptoolName,
+      '--port',
+      port,
+      '--baud',
+      baudRate.toString(),
+      '--before',
+      'default-reset',
+      '--after',
+      'hard-reset',
       'write-flash',
       '-z',
-      '--flash-mode', flashMode,
-      '--flash-freq', flashFreq,
-      '--flash-size', 'detect',
-      '0x1000', bootloaderPath,
-      '0x8000', partitionsPath,
-      '0xe000', otaDataPath,
-      '0x10000', firmwarePath, // app0 (ota_0)
-      '0x1f0000', firmwarePath, // app1 (ota_1)
-      '0x3d0000', filesystemPath,
+      '--flash-mode',
+      'keep',
+      '--flash-freq',
+      'keep',
+      '--flash-size',
+      'keep',
+      '0x0',
+      factoryFirmwarePath,
     ];
+    if (littlefsPath != null && littlefsAddress != null) {
+      if (!await File(littlefsPath).exists()) {
+        throw Exception('LittleFS file not found: $littlefsPath');
+      }
+      args.addAll(['0x${littlefsAddress.toRadixString(16)}', littlefsPath]);
+    }
 
-    onOutput('\nFlashing ESP32...\n');
+    onOutput('\nFlashing ${chip.displayName}...\n');
 
     final exitCode = await runEsptool(
       args: args,
       onOutput: onOutput,
       esptoolPath: esptool,
     );
-
-    // Clean up temp files
-    for (final path in [bootloaderPath, partitionsPath, otaDataPath, filesystemPath]) {
-      try {
-        await File(path).delete();
-        await File(path).parent.delete();
-      } catch (_) {}
-    }
 
     if (exitCode != 0) {
       throw Exception('esptool exited with code $exitCode');
@@ -205,9 +198,6 @@ class EsptoolService {
     required String port,
     required void Function(String) onOutput,
   }) async {
-    await runEsptool(
-      args: ['--chip', 'esp32', '--port', port, 'chip_id'],
-      onOutput: onOutput,
-    );
+    await runEsptool(args: ['--port', port, 'chip-id'], onOutput: onOutput);
   }
 }

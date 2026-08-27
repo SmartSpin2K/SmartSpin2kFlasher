@@ -4,8 +4,10 @@ SmartSpin2kFlasher is a utility app for the [SmartSpin2k](https://github.com/dou
 framework and is designed to make flashing ESPs with SmartSpin2K as simple as possible by:
 
  * Having pre-built binaries for most operating systems.
- * Hiding all non-essential options for flashing. All necessary options for flashing
-   (bootloader, flash mode) are automatically extracted from the binary.
+ * Detecting whether the connected board is an ESP32 or ESP32-S3 and selecting
+   the matching firmware automatically.
+ * Installing the release factory image and LittleFS together in one flash
+   operation, without exposing low-level flash options.
 
 The GUI is built with [Flutter](https://flutter.dev/) for cross-platform desktop support
 (Windows, macOS, Linux).
