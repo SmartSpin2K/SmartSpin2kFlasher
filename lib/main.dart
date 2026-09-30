@@ -13,25 +13,8 @@ import 'widgets/widgets.dart';
 
 late final String appVersion;
 
-/// On Windows, Dart's default SecurityContext may not include system root
-/// certificates, causing CERTIFICATE_VERIFY_FAILED errors. This override
-/// accepts certificates for the GitHub hosts this app connects to.
-class _SmartSpin2kHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    final client = super.createHttpClient(context);
-    client.badCertificateCallback =
-        (X509Certificate cert, String host, int port) {
-          return host.endsWith('github.com') ||
-              host.endsWith('githubusercontent.com');
-        };
-    return client;
-  }
-}
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  HttpOverrides.global = _SmartSpin2kHttpOverrides();
   appVersion = (await PackageInfo.fromPlatform()).version;
   await PreferencesService.init();
   runApp(const SmartSpin2kFlasherApp());
