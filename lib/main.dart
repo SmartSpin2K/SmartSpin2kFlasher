@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_libserialport/flutter_libserialport.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 
@@ -93,6 +94,14 @@ class _MainScreenState extends State<MainScreen> {
   bool _isFlashing = false;
   bool _isShowingLogs = false;
 
+  // Post-flash boot detection
+  BootState? _flashResult;
+  BootMonitor? _bootMonitor;
+  Timer? _portWatchTimer;
+  bool _handlingDisconnect = false;
+  String _flashedChip = '';
+  String _flashedFirmware = '';
+
   // Firmware source
   List<FirmwareRelease> _releases = [];
   bool _loadingReleases = true;
@@ -112,6 +121,8 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    _bootMonitor?.dispose();
+    _portWatchTimer?.cancel();
     _serialLogService.stopLogs();
     _serialLogFileWriter.close();
     super.dispose();
@@ -120,18 +131,11 @@ class _MainScreenState extends State<MainScreen> {
   void _refreshPorts() {
     setState(() {
       _ports = SerialPortService.listSerialPorts();
-      // Try to restore saved port first
-      final savedPort = PreferencesService.selectedPort;
-      if (savedPort != null && _ports.any((p) => p.port == savedPort)) {
-        _selectedPort = savedPort;
-      } else if (_ports.isNotEmpty &&
-          (_selectedPort == null ||
-              !_ports.any((p) => p.port == _selectedPort))) {
-        _selectedPort = _ports.first.port;
-      }
-      if (_ports.isEmpty) {
-        _selectedPort = null;
-      }
+      // Prefer a connected SmartSpin2k board, then the saved port.
+      _selectedPort = SerialPortService.choosePort(
+        _ports,
+        PreferencesService.selectedPort ?? _selectedPort,
+      );
     });
   }
 
@@ -185,6 +189,8 @@ class _MainScreenState extends State<MainScreen> {
       _log('Error: No serial port selected\n');
       return;
     }
+
+    setState(_clearFlashResult);
 
     // Stop serial logger if it's using the port
     if (_isShowingLogs) {
@@ -279,23 +285,52 @@ class _MainScreenState extends State<MainScreen> {
         onOutput: _log,
       );
 
-      _log('\nAutomatically showing logs after successful flash:\n');
+      _log('\nWaiting for the device to restart...\n');
+      _flashedChip = chip.displayName;
+      _flashedFirmware = _firmwareSource == 'github'
+          ? (_selectedRelease?.tag ?? 'the selected release')
+          : p.basename(_localFirmwarePath!);
+      final monitor = BootMonitor(
+        onStateChanged: (state) {
+          if (!mounted) return;
+          setState(() => _flashResult = state);
+          // The port can drop out while the board resets, so only watch for
+          // an unplug once the device has started talking (or we gave up).
+          if (state != BootState.waiting && _portWatchTimer == null) {
+            _startPortWatch();
+          }
+        },
+      );
+      _bootMonitor = monitor;
+      monitor.start();
       await Future.delayed(const Duration(seconds: 1));
-      _startLogs();
+      if (!mounted) return;
+      if (_bootMonitor != monitor) return;
+      unawaited(
+        _startLogs(
+          initialMessage: 'Waiting for the device to restart...\n',
+          onRawLine: monitor.addLine,
+        ),
+      );
     } catch (e) {
       _log('\nError: $e\n');
     } finally {
-      setState(() => _isFlashing = false);
+      if (mounted) setState(() => _isFlashing = false);
     }
   }
 
-  Future<void> _startLogs({String? logFilePath}) async {
+  Future<void> _startLogs({
+    String? logFilePath,
+    String? initialMessage,
+    void Function(String line)? onRawLine,
+  }) async {
     if (_selectedPort == null) {
       _log('Error: No serial port selected\n');
       return;
     }
 
     _consoleKey.currentState?.clear();
+    if (initialMessage != null) _log(initialMessage);
     setState(() => _isShowingLogs = true);
 
     try {
@@ -305,7 +340,15 @@ class _MainScreenState extends State<MainScreen> {
       }
       await _serialLogService.startLogs(
         port: _selectedPort!,
+        onClosed: (_) {
+          if (mounted && _isShowingLogs) {
+            unawaited(_handleDeviceDisconnected());
+          }
+        },
         onData: (data) {
+          onRawLine?.call(
+            data.endsWith('\n') ? data.substring(0, data.length - 1) : data,
+          );
           final timestamp = DateTime.now().toString().substring(11, 19);
           final entry = '[$timestamp] $data';
           _serialLogFileWriter.write(entry);
@@ -333,7 +376,54 @@ class _MainScreenState extends State<MainScreen> {
       type: FileType.custom,
       allowedExtensions: const ['log', 'txt'],
     );
-    if (path != null) await _startLogs(logFilePath: path);
+    if (path != null) {
+      if (mounted) setState(_clearFlashResult);
+      await _startLogs(logFilePath: path);
+    }
+  }
+
+  Future<void> _viewLogs() async {
+    setState(_clearFlashResult);
+    await _startLogs();
+  }
+
+  void _clearFlashResult() {
+    _bootMonitor?.dispose();
+    _bootMonitor = null;
+    _portWatchTimer?.cancel();
+    _portWatchTimer = null;
+    _flashResult = null;
+  }
+
+  void _startPortWatch() {
+    _portWatchTimer?.cancel();
+    _portWatchTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+      if (_flashResult == null || _selectedPort == null) return;
+      if (!SerialPort.availablePorts.contains(_selectedPort)) {
+        unawaited(_handleDeviceDisconnected());
+      }
+    });
+  }
+
+  Future<void> _handleDeviceDisconnected() async {
+    if (!mounted || _handlingDisconnect) return;
+    final hadBanner = _flashResult != null;
+    if (!hadBanner && !_isShowingLogs) return;
+    _handlingDisconnect = true;
+    try {
+      if (_isShowingLogs) {
+        await _stopLogs(showMessage: false);
+      }
+      if (!mounted) return;
+      setState(_clearFlashResult);
+      _log(
+        hadBanner
+            ? '\nDevice disconnected.\n'
+            : '\nSerial port closed.\n',
+      );
+    } finally {
+      _handlingDisconnect = false;
+    }
   }
 
   void _showUdpLogger() {
@@ -429,7 +519,10 @@ class _MainScreenState extends State<MainScreen> {
                                       (p) => DropdownMenuItem(
                                         value: p.port,
                                         child: Text(
-                                          '${p.port} — ${p.description}',
+                                          p.board != null
+                                              ? '${p.port} — SmartSpin2k '
+                                                    '(${p.board!.displayName})'
+                                              : '${p.port} — ${p.description}',
                                         ),
                                       ),
                                     )
@@ -661,7 +754,7 @@ class _MainScreenState extends State<MainScreen> {
                   child: OutlinedButton.icon(
                     onPressed: _isFlashing
                         ? null
-                        : (_isShowingLogs ? _stopLogs : _startLogs),
+                        : (_isShowingLogs ? _stopLogs : _viewLogs),
                     icon: Icon(
                       _isShowingLogs ? Icons.stop : Icons.terminal,
                       size: 18,
@@ -691,12 +784,118 @@ class _MainScreenState extends State<MainScreen> {
             ),
             const SizedBox(height: 16),
 
+            if (_flashResult != null) ...[
+              _flashBanner(),
+              const SizedBox(height: 12),
+            ],
+
             // Console header
             _sectionLabel('CONSOLE', icon: Icons.terminal),
             const SizedBox(height: 6),
             Expanded(child: ConsoleOutput(key: _consoleKey)),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _flashBanner() {
+    final state = _flashResult!;
+    final isWaiting = state == BootState.waiting || state == BootState.booting;
+
+    if (isWaiting) {
+      final brightness = Theme.of(context).brightness;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: SS2KColors.surface(brightness),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: SS2KColors.border(brightness)),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Flashed successfully — waiting for the device to restart…',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final Color color;
+    final IconData icon;
+    final String title;
+    final String subtitle;
+    switch (state) {
+      case BootState.booted:
+        color = Colors.green.shade700;
+        icon = Icons.check_circle;
+        title = 'Flashing Complete';
+        subtitle =
+            'SmartSpin2k ($_flashedChip) restarted and is running '
+            '$_flashedFirmware. You can unplug the board.';
+      case BootState.timedOut:
+        color = Colors.amber.shade800;
+        icon = Icons.check_circle_outline;
+        title = 'Flashing Complete';
+        subtitle =
+            "Firmware was written and verified, but the device didn't report "
+            'a restart. Check the logs below or press the reset button.';
+      case BootState.crashed:
+      default:
+        color = Colors.red.shade700;
+        icon = Icons.error;
+        title = 'Flashed, but the device restarted unexpectedly';
+        subtitle = 'Check the logs below.';
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 40, color: Colors.white),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(fontSize: 13, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            tooltip: 'Dismiss',
+            onPressed: () => setState(_clearFlashResult),
+          ),
+        ],
       ),
     );
   }

@@ -59,11 +59,32 @@ class FlashConfig {
   FlashConfig({required this.port, this.firmwarePath, this.baudRate = 921600});
 }
 
+/// SmartSpin2k board types recognisable from their USB IDs, in order of
+/// preference when several are connected.
+enum SmartSpin2kUsbBoard {
+  /// ESP32-S3 boards use the chip's native USB (Espressif VID 0x303A).
+  esp32s3('ESP32-S3'),
+
+  /// Older ESP32 boards use a Silicon Labs CP210x USB-to-UART bridge.
+  esp32Cp210x('ESP32');
+
+  const SmartSpin2kUsbBoard(this.displayName);
+
+  final String displayName;
+
+  static SmartSpin2kUsbBoard? fromUsbIds(int? vendorId, int? productId) {
+    if (vendorId == 0x303A && productId == 0x1001) return esp32s3;
+    if (vendorId == 0x10C4 && productId == 0xEA60) return esp32Cp210x;
+    return null;
+  }
+}
+
 class SerialPortInfo {
   final String port;
   final String description;
+  final SmartSpin2kUsbBoard? board;
 
-  SerialPortInfo({required this.port, required this.description});
+  SerialPortInfo({required this.port, required this.description, this.board});
 
   @override
   String toString() => '$port ($description)';
