@@ -105,6 +105,8 @@ jobs:
 
     - name: Download esptool
       run: dart run tool/download_esptool.dart
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
 
     - name: Analyze
       run: flutter analyze
