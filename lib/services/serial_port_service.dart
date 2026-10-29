@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter_libserialport/flutter_libserialport.dart';
+
 import '../models/models.dart';
 
 class SerialPortService {
@@ -94,6 +96,45 @@ class SerialPortService {
     }
 
     ports.sort((a, b) => a.port.compareTo(b.port));
-    return ports;
+    return ports
+        .map(
+          (p) => SerialPortInfo(
+            port: p.port,
+            description: p.description,
+            board: _detectBoard(p.port),
+          ),
+        )
+        .toList();
+  }
+
+  /// Identify a SmartSpin2k board from the port's USB vendor/product IDs.
+  static SmartSpin2kUsbBoard? _detectBoard(String port) {
+    SerialPort? serialPort;
+    try {
+      serialPort = SerialPort(port);
+      if (serialPort.transport != SerialPortTransport.usb) return null;
+      return SmartSpin2kUsbBoard.fromUsbIds(
+        serialPort.vendorId,
+        serialPort.productId,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      serialPort?.dispose();
+    }
+  }
+
+  /// Pick the port to select: keep [preferred] if it is a SmartSpin2k board,
+  /// otherwise the best detected board (S3 first), otherwise [preferred] if it
+  /// still exists, otherwise the first port.
+  static String? choosePort(List<SerialPortInfo> ports, String? preferred) {
+    if (ports.isEmpty) return null;
+    final current = ports.where((p) => p.port == preferred);
+    if (current.isNotEmpty && current.first.board != null) return preferred;
+    final boards = ports.where((p) => p.board != null).toList()
+      ..sort((a, b) => a.board!.index.compareTo(b.board!.index));
+    if (boards.isNotEmpty) return boards.first.port;
+    if (current.isNotEmpty) return preferred;
+    return ports.first.port;
   }
 }

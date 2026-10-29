@@ -89,12 +89,20 @@ Future<Map<String, dynamic>> _getRelease(String platform) async {
   final endpoint = platform == 'macos'
       ? 'releases/tags/$_macosVersion'
       : 'releases/latest';
+  // Unauthenticated API calls are rate limited per IP, which shared CI
+  // runners exhaust quickly. Use a token when one is available.
+  final token = Platform.environment['GITHUB_TOKEN'];
   final response = await http.get(
     Uri.parse('https://api.github.com/repos/$_repo/$endpoint'),
-    headers: {'Accept': 'application/vnd.github.v3+json'},
+    headers: {
+      'Accept': 'application/vnd.github.v3+json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    },
   );
   if (response.statusCode != 200) {
-    throw Exception('GitHub API error: HTTP ${response.statusCode}');
+    throw Exception(
+      'GitHub API error: HTTP ${response.statusCode}: ${response.body}',
+    );
   }
   return json.decode(response.body) as Map<String, dynamic>;
 }
