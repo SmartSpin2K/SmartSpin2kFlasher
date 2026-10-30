@@ -13,7 +13,7 @@ dependencies:
   archive: ^4.0.0
   path: ^1.9.0
   path_provider: ^2.1.0
-  file_picker: ^8.0.0
+  file_picker: ^11.0.2
   url_launcher: ^6.2.0
   shared_preferences: ^2.5.4
   package_info_plus: ^9.0.1
