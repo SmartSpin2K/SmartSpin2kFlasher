@@ -99,6 +99,7 @@ class _MainScreenState extends State<MainScreen> {
   BootMonitor? _bootMonitor;
   Timer? _portWatchTimer;
   bool _handlingDisconnect = false;
+  bool _awaitingPort = false;
   String _flashedChip = '';
   String _flashedFirmware = '';
 
@@ -319,17 +320,18 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _startLogs({
+  Future<bool> _startLogs({
     String? logFilePath,
     String? initialMessage,
     void Function(String line)? onRawLine,
+    bool clearConsole = true,
   }) async {
     if (_selectedPort == null) {
       _log('Error: No serial port selected\n');
-      return;
+      return false;
     }
 
-    _consoleKey.currentState?.clear();
+    if (clearConsole) _consoleKey.currentState?.clear();
     if (initialMessage != null) _log(initialMessage);
     setState(() => _isShowingLogs = true);
 
@@ -342,7 +344,12 @@ class _MainScreenState extends State<MainScreen> {
         port: _selectedPort!,
         onClosed: (_) {
           if (mounted && _isShowingLogs) {
-            unawaited(_handleDeviceDisconnected());
+            final monitor = _bootMonitor;
+            if (monitor != null && !monitor.isTerminal) {
+              unawaited(_awaitPortReturn(monitor));
+            } else {
+              unawaited(_handleDeviceDisconnected());
+            }
           }
         },
         onData: (data) {
@@ -355,10 +362,41 @@ class _MainScreenState extends State<MainScreen> {
           _log(entry);
         },
       );
+      return true;
     } catch (e) {
       await _serialLogFileWriter.close();
       _log('Error starting logs: $e\n');
       setState(() => _isShowingLogs = false);
+      return false;
+    }
+  }
+
+  /// Keeps the banner alive while the port drops during a planned restart,
+  /// then resumes logging once the port re-enumerates.
+  Future<void> _awaitPortReturn(BootMonitor monitor) async {
+    if (_awaitingPort) return;
+    _awaitingPort = true;
+    try {
+      await _stopLogs(showMessage: false);
+      monitor.notePortReset();
+      _log(
+        '\nSerial port closed while the device restarts; waiting for it to reconnect...\n',
+      );
+      while (true) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (!mounted || _bootMonitor != monitor || monitor.isTerminal) return;
+        if (_selectedPort == null ||
+            !SerialPort.availablePorts.contains(_selectedPort)) {
+          continue;
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (!mounted || _bootMonitor != monitor || monitor.isTerminal) return;
+        if (await _startLogs(clearConsole: false, onRawLine: monitor.addLine)) {
+          return;
+        }
+      }
+    } finally {
+      _awaitingPort = false;
     }
   }
 
@@ -399,6 +437,8 @@ class _MainScreenState extends State<MainScreen> {
     _portWatchTimer?.cancel();
     _portWatchTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
       if (_flashResult == null || _selectedPort == null) return;
+      final monitor = _bootMonitor;
+      if (monitor != null && !monitor.isTerminal) return;
       if (!SerialPort.availablePorts.contains(_selectedPort)) {
         unawaited(_handleDeviceDisconnected());
       }
