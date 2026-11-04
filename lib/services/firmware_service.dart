@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/chip_info.dart';
+import 'firmware_http_client.dart';
 
 /// Represents a SmartSpin2k firmware release from GitHub.
 class FirmwareRelease {
@@ -39,6 +40,18 @@ class FirmwareService {
   // Cache for release zip data, keyed by tag
   static final Map<String, Uint8List> _zipCache = {};
 
+  static Future<http.Response> _get(
+    Uri url, {
+    Map<String, String>? headers,
+  }) async {
+    final client = await createFirmwareHttpClient();
+    try {
+      return await client.get(url, headers: headers);
+    } finally {
+      client.close();
+    }
+  }
+
   /// Return the release artifacts appropriate for the detected ESP target.
   static FirmwareImageSet factoryImageSetFor(SmartSpin2kChip chip) {
     switch (chip) {
@@ -63,7 +76,7 @@ class FirmwareService {
   }) async {
     onLog?.call('Fetching SmartSpin2k releases...\n');
 
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('https://api.github.com/repos/doudar/SmartSpin2k/releases'),
       headers: {'Accept': 'application/vnd.github.v3+json'},
     );
@@ -105,7 +118,7 @@ class FirmwareService {
       final downloadUrl =
           'https://github.com/doudar/SmartSpin2k/releases/download/$tag/SmartSpin2kFirmware-$tag.bin.zip';
       onLog?.call('Downloading release $tag...\n');
-      final response = await http.get(Uri.parse(downloadUrl));
+      final response = await _get(Uri.parse(downloadUrl));
       if (response.statusCode != 200) {
         throw Exception(
           'Failed to download release $tag: HTTP ${response.statusCode}',
@@ -134,7 +147,7 @@ class FirmwareService {
   }) async {
     onLog?.call('Fetching latest SmartSpin2k release...');
 
-    final client = http.Client();
+    final client = await createFirmwareHttpClient();
     try {
       final request = http.Request(
         'GET',
@@ -150,7 +163,7 @@ class FirmwareService {
       if (location != null && location.contains('/releases/tag/')) {
         tag = location.split('/releases/tag/').last;
       } else {
-        final fullResponse = await http.get(
+        final fullResponse = await client.get(
           Uri.parse('https://github.com/doudar/SmartSpin2k/releases/latest'),
         );
         final finalUrl = fullResponse.request?.url.toString() ?? '';
@@ -163,7 +176,7 @@ class FirmwareService {
       final downloadUrl =
           'https://github.com/doudar/SmartSpin2k/releases/download/$tag/SmartSpin2kFirmware-$tag.bin.zip';
 
-      final headResponse = await http.head(Uri.parse(downloadUrl));
+      final headResponse = await client.head(Uri.parse(downloadUrl));
       if (headResponse.statusCode == 404) {
         throw Exception('Firmware zip not found at: $downloadUrl');
       }
@@ -184,7 +197,7 @@ class FirmwareService {
 
     if (!_zipCache.containsKey('__latest__')) {
       onLog?.call('Downloading firmware package...');
-      final response = await http.get(Uri.parse(releaseUrl));
+      final response = await _get(Uri.parse(releaseUrl));
       if (response.statusCode != 200) {
         throw Exception(
           'Failed to download firmware: HTTP ${response.statusCode}',
@@ -213,7 +226,7 @@ class FirmwareService {
     void Function(String)? onLog,
   }) async {
     onLog?.call('Downloading: $url');
-    final response = await http.get(Uri.parse(url));
+    final response = await _get(Uri.parse(url));
     if (response.statusCode != 200) {
       throw Exception('Failed to download $url: HTTP ${response.statusCode}');
     }

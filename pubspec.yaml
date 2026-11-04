@@ -29,3 +29,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/ss2kv3.png
+    - assets/certificates/cacert.pem
+    - assets/certificates/LICENSE-MPL-2.0.txt
